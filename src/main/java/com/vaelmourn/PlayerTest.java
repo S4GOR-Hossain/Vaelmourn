@@ -1,5 +1,6 @@
 package com.vaelmourn;
 
+import com.jme3.anim.AnimComposer;
 import com.jme3.app.SimpleApplication;
 import com.jme3.bullet.BulletAppState;
 import com.jme3.bullet.collision.shapes.BoxCollisionShape;
@@ -16,14 +17,16 @@ import com.jme3.math.Vector3f;
 import com.jme3.renderer.Camera;
 import com.jme3.scene.Geometry;
 import com.jme3.scene.Node;
+import com.jme3.scene.Spatial;
 import com.jme3.scene.shape.Box;
-import com.jme3.scene.shape.Sphere;
 
 public class PlayerTest extends SimpleApplication implements ActionListener {
 
     private BulletAppState bulletAppState;
     private BetterCharacterControl playerControl;
     private Node playerNode;
+    private AnimComposer animComposer;
+    private String currentAnim = "";
 
     private boolean left, right, forward, backward;
     private final Vector3f walkDirection = new Vector3f();
@@ -64,16 +67,11 @@ public class PlayerTest extends SimpleApplication implements ActionListener {
         ambient.setColor(ColorRGBA.White.mult(0.4f));
         rootNode.addLight(ambient);
 
-        // --- PLAYER VISUAL (placeholder sphere) ---
-        Sphere playerShape = new Sphere(16, 16, 0.5f);
-        Geometry playerGeom = new Geometry("PlayerVisual", playerShape);
-        Material playerMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-        playerMat.setColor("Color", ColorRGBA.Red);
-        playerGeom.setMaterial(playerMat);
-        playerGeom.setLocalTranslation(0, 0.9f, 0);
+        // --- PLAYER VISUAL (real model) ---
+        Spatial playerModel = assetManager.loadModel("Models/Characters/Player/player.gltf");
 
         playerNode = new Node("Player");
-        playerNode.attachChild(playerGeom);
+        playerNode.attachChild(playerModel);
         rootNode.attachChild(playerNode);
 
         // --- PLAYER PHYSICS ---
@@ -83,12 +81,19 @@ public class PlayerTest extends SimpleApplication implements ActionListener {
         playerNode.addControl(playerControl);
         bulletAppState.getPhysicsSpace().add(playerControl);
 
-        // Prevent tunneling through the floor at speed
         playerControl.getRigidBody().setCcdMotionThreshold(0.1f);
         playerControl.getRigidBody().setCcdSweptSphereRadius(0.5f);
 
-        // Physics-safe spawn position (do NOT use setLocalTranslation here)
         playerControl.warp(new Vector3f(0, 5f, 0));
+
+        // --- ANIMATION SETUP ---
+        animComposer = findAnimComposer(playerModel);
+        if (animComposer != null) {
+            System.out.println("Available animations: " + animComposer.getAnimClipsNames());
+            playAnim("Idle");
+        } else {
+            System.out.println("No AnimComposer found on this model.");
+        }
 
         // --- INPUT ---
         initKeys();
@@ -96,6 +101,34 @@ public class PlayerTest extends SimpleApplication implements ActionListener {
         // --- CAMERA ---
         flyCam.setEnabled(false);
         cam.setLocation(new Vector3f(0, 3, -8));
+    }
+
+    private AnimComposer findAnimComposer(Spatial spatial) {
+        AnimComposer composer = spatial.getControl(AnimComposer.class);
+        if (composer != null) {
+            return composer;
+        }
+        if (spatial instanceof Node) {
+            for (Spatial child : ((Node) spatial).getChildren()) {
+                AnimComposer result = findAnimComposer(child);
+                if (result != null) {
+                    return result;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Only switches animation if it's actually different from what's currently playing,
+     * so the clip doesn't restart every single frame.
+     */
+    private void playAnim(String name) {
+        if (animComposer == null) return;
+        if (!currentAnim.equals(name)) {
+            animComposer.setCurrentAction(name);
+            currentAnim = name;
+        }
     }
 
     private void initKeys() {
@@ -134,8 +167,22 @@ public class PlayerTest extends SimpleApplication implements ActionListener {
         if (left) walkDirection.addLocal(camLeft);
         if (right) walkDirection.addLocal(camLeft.negate());
 
+        boolean isMoving = forward || backward || left || right;
+
         walkDirection.normalizeLocal().multLocal(MOVE_SPEED);
         playerControl.setWalkDirection(walkDirection);
+
+        // Rotate the character to face its movement direction
+        if (isMoving) {
+            playerControl.setViewDirection(walkDirection);
+        }
+
+        // Animation state switching
+        if (isMoving) {
+            playAnim("Walk");
+        } else {
+            playAnim("Idle");
+        }
 
         // Simple follow camera
         Vector3f playerPos = playerNode.getLocalTranslation();
