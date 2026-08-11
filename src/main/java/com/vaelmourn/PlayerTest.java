@@ -7,12 +7,16 @@ import com.jme3.bullet.collision.shapes.BoxCollisionShape;
 import com.jme3.bullet.control.BetterCharacterControl;
 import com.jme3.bullet.control.RigidBodyControl;
 import com.jme3.input.KeyInput;
+import com.jme3.input.MouseInput;
 import com.jme3.input.controls.ActionListener;
+import com.jme3.input.controls.AnalogListener;
 import com.jme3.input.controls.KeyTrigger;
+import com.jme3.input.controls.MouseAxisTrigger;
 import com.jme3.light.AmbientLight;
 import com.jme3.light.DirectionalLight;
 import com.jme3.material.Material;
 import com.jme3.math.ColorRGBA;
+import com.jme3.math.FastMath;
 import com.jme3.math.Vector3f;
 import com.jme3.renderer.Camera;
 import com.jme3.scene.Geometry;
@@ -31,6 +35,23 @@ public class PlayerTest extends SimpleApplication implements ActionListener {
     private boolean left, right, forward, backward;
     private final Vector3f walkDirection = new Vector3f();
     private final float MOVE_SPEED = 6f;
+
+    // --- Custom orbit camera state ---
+    private float camYaw = 0f;
+    private float camPitch = 0.3f;
+    private float camDistance = 8f;
+    private final float HORIZONTAL_SENSITIVITY = 3f;
+    private final float VERTICAL_SENSITIVITY = 1f;
+
+    private final AnalogListener analogListener = (name, value, tpf) -> {
+        switch (name) {
+            case "MouseX+": camYaw -= value * HORIZONTAL_SENSITIVITY; break;
+            case "MouseX-": camYaw += value * HORIZONTAL_SENSITIVITY; break;
+            case "MouseY+": camPitch += value * VERTICAL_SENSITIVITY; break;
+            case "MouseY-": camPitch -= value * VERTICAL_SENSITIVITY; break;
+        }
+        camPitch = FastMath.clamp(camPitch, -1.2f, 1.2f);
+    };
 
     public static void main(String[] args) {
         PlayerTest app = new PlayerTest();
@@ -100,7 +121,14 @@ public class PlayerTest extends SimpleApplication implements ActionListener {
 
         // --- CAMERA ---
         flyCam.setEnabled(false);
-        cam.setLocation(new Vector3f(0, 3, -8));
+        inputManager.setCursorVisible(false);
+
+        inputManager.addMapping("MouseX+", new MouseAxisTrigger(MouseInput.AXIS_X, false));
+        inputManager.addMapping("MouseX-", new MouseAxisTrigger(MouseInput.AXIS_X, true));
+        inputManager.addMapping("MouseY+", new MouseAxisTrigger(MouseInput.AXIS_Y, false));
+        inputManager.addMapping("MouseY-", new MouseAxisTrigger(MouseInput.AXIS_Y, true));
+
+        inputManager.addListener(analogListener, "MouseX+", "MouseX-", "MouseY+", "MouseY-");
     }
 
     private AnimComposer findAnimComposer(Spatial spatial) {
@@ -119,10 +147,6 @@ public class PlayerTest extends SimpleApplication implements ActionListener {
         return null;
     }
 
-    /**
-     * Only switches animation if it's actually different from what's currently playing,
-     * so the clip doesn't restart every single frame.
-     */
     private void playAnim(String name) {
         if (animComposer == null) return;
         if (!currentAnim.equals(name)) {
@@ -172,22 +196,25 @@ public class PlayerTest extends SimpleApplication implements ActionListener {
         walkDirection.normalizeLocal().multLocal(MOVE_SPEED);
         playerControl.setWalkDirection(walkDirection);
 
-        // Rotate the character to face its movement direction
         if (isMoving) {
             playerControl.setViewDirection(walkDirection);
         }
 
-        // Animation state switching
         if (isMoving) {
             playAnim("Walk");
         } else {
             playAnim("Idle");
         }
 
-        // Simple follow camera
+        // --- Custom orbit camera positioning ---
         Vector3f playerPos = playerNode.getLocalTranslation();
-        Vector3f camOffset = new Vector3f(0, 3, -8);
-        cam.setLocation(playerPos.add(camOffset));
+        Vector3f offset = new Vector3f(
+                FastMath.sin(camYaw) * FastMath.cos(camPitch),
+                FastMath.sin(camPitch),
+                FastMath.cos(camYaw) * FastMath.cos(camPitch)
+        ).multLocal(camDistance);
+
+        cam.setLocation(playerPos.add(offset).add(0, 1.5f, 0));
         cam.lookAt(playerPos.add(0, 1.5f, 0), Vector3f.UNIT_Y);
     }
 }
