@@ -95,12 +95,19 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     private Weapons weapons;
     private CombatController combat;
 
+    // --- Inventory / HUD integration ---
+    private Inventory inventory;
+    private PlayerStats playerStats;
+    private InventoryUI inventoryUI;
+    private boolean inventoryOpen = false;
+
     private Node forestZoneNode;
 
     private EnvironmentCamera envCam;
     private boolean lightProbeBaked = false;
 
     private final AnalogListener analogListener = (name, value, tpf) -> {
+        if (inventoryOpen) return; // don't orbit the camera while browsing
         switch (name) {
             case "MouseX+":
                 camYaw -= value * HORIZONTAL_SENSITIVITY;
@@ -235,6 +242,38 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         weapons = new Weapons();
         combat = new CombatController(cam, playerNode, animComposer, weapons);
         combat.equip("iron_sword"); // default weapon
+
+        // Inventory + HUD
+        ItemRegistry.registerDefaults();
+        inventory = new Inventory();
+        playerStats = new PlayerStats();
+
+        // Give the player a few starter items so the UI is populated.
+        inventory.addItem("health_potion", 6);
+        inventory.addItem("mana_potion", 3);
+        inventory.addItem("dungeon_key", 2);
+        inventory.addItem("iron_ingot", 12);
+        inventory.addItem("leather", 8);
+        inventory.addItem("iron_sword", 1);
+        inventory.getToolbarSlot(0).itemId = "iron_sword";
+        inventory.getToolbarSlot(0).count = 1;
+        inventory.getToolbarSlot(1).itemId = "health_potion";
+        inventory.getToolbarSlot(1).count = 3;
+        inventory.getToolbarSlot(2).itemId = "dungeon_key";
+        inventory.getToolbarSlot(2).count = 2;
+        inventory.getEquipSlot(Inventory.EquipSlot.HELMET).itemId = "iron_helmet";
+        inventory.getEquipSlot(Inventory.EquipSlot.HELMET).count = 1;
+        inventory.getEquipSlot(Inventory.EquipSlot.CHESTPLATE).itemId = "iron_chestplate";
+        inventory.getEquipSlot(Inventory.EquipSlot.CHESTPLATE).count = 1;
+        inventory.getEquipSlot(Inventory.EquipSlot.BOOTS).itemId = "iron_boots";
+        inventory.getEquipSlot(Inventory.EquipSlot.BOOTS).count = 1;
+        playerStats.addSoulDust(250);
+        playerStats.addExperience(40f);
+
+        inventoryUI = new InventoryUI(assetManager, renderManager, inputManager, cam,
+                inventory, playerStats, playerModel,
+                settings.getWidth(), settings.getHeight());
+        guiNode.attachChild(inventoryUI.getNode());
 
         initKeys();
 
@@ -580,6 +619,9 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         inputManager.addMapping("Dodge", new KeyTrigger(KeyInput.KEY_LSHIFT));
         inputManager.addMapping("Crouch", new KeyTrigger(KeyInput.KEY_LCONTROL));
 
+        // Inventory toggle
+        inputManager.addMapping("Inventory", new KeyTrigger(KeyInput.KEY_E));
+
         // Combat mouse buttons
         inputManager.addMapping("AttackPrimary", new MouseButtonTrigger(MouseInput.BUTTON_LEFT));
         inputManager.addMapping("AttackSecondary", new MouseButtonTrigger(MouseInput.BUTTON_RIGHT));
@@ -588,12 +630,40 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                 this,
                 "Left", "Right", "Forward", "Backward",
                 "Jump", "Dodge", "Crouch",
-                "AttackPrimary", "AttackSecondary"
+                "AttackPrimary", "AttackSecondary",
+                "Inventory"
         );
     }
 
     @Override
     public void onAction(String name, boolean isPressed, float tpf) {
+        switch (name) {
+            case "Inventory":
+                if (isPressed) toggleInventory();
+                return;
+
+            case "Left":
+            case "Right":
+            case "Forward":
+            case "Backward":
+            case "Jump":
+            case "Dodge":
+            case "Crouch":
+            case "AttackPrimary":
+                // When the inventory is open, route the click to the UI
+                // (select / drag-drop) instead of the gameplay combat.
+                if (inventoryOpen) {
+                    if (isPressed && inventoryUI != null) inventoryUI.handlePrimaryClick();
+                    return;
+                }
+                break;
+
+            case "AttackSecondary":
+                // Ignore gameplay input while the inventory is open.
+                if (inventoryOpen) return;
+                break;
+        }
+
         switch (name) {
             case "Left":
                 left = isPressed;
@@ -633,6 +703,20 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         }
     }
 
+    private void toggleInventory() {
+        inventoryOpen = !inventoryOpen;
+        inventoryUI.setVisible(inventoryOpen);
+
+        if (inventoryOpen) {
+            // Freeze gameplay state while browsing.
+            inputManager.setCursorVisible(true);
+            if (playerControl != null) playerControl.setWalkDirection(Vector3f.ZERO);
+            forward = backward = left = right = false;
+        } else {
+            inputManager.setCursorVisible(false);
+        }
+    }
+
     private void startDodge() {
         dodging = true;
         dodgeTimer = rollClipLength;
@@ -643,6 +727,15 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
     @Override
     public void simpleUpdate(float tpf) {
+
+        if (inventoryUI != null) {
+            inventoryUI.update(tpf, cam);
+        }
+
+        // While the inventory is open the game world is paused.
+        if (inventoryOpen) {
+            return;
+        }
 
         if (!lightProbeBaked && envCam.getApplication() != null) {
             bakeLightProbe();
