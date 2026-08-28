@@ -24,6 +24,12 @@ public class PlayerStats {
     // Currency
     private int soulDust = 0;
 
+    // Derived combat / movement stats (surfaced in the stats bar)
+    private float averageDamage = 8f;    // average damage output
+    private float armorPoints = 10f;     // total shield / armor points
+    private float movementSpeed = 5f;    // movement speed
+    private float attackSpeed = 1.2f;    // average attack speed
+
     public float getHealth() {
         return health;
     }
@@ -54,6 +60,38 @@ public class PlayerStats {
 
     public int getSoulDust() {
         return soulDust;
+    }
+
+    public float getAverageDamage() {
+        return averageDamage;
+    }
+
+    public void setAverageDamage(float averageDamage) {
+        this.averageDamage = Math.max(0f, averageDamage);
+    }
+
+    public float getArmorPoints() {
+        return armorPoints;
+    }
+
+    public void setArmorPoints(float armorPoints) {
+        this.armorPoints = Math.max(0f, armorPoints);
+    }
+
+    public float getMovementSpeed() {
+        return movementSpeed;
+    }
+
+    public void setMovementSpeed(float movementSpeed) {
+        this.movementSpeed = Math.max(0f, movementSpeed);
+    }
+
+    public float getAttackSpeed() {
+        return attackSpeed;
+    }
+
+    public void setAttackSpeed(float attackSpeed) {
+        this.attackSpeed = Math.max(0f, attackSpeed);
     }
 
     public String getPlayerName() {

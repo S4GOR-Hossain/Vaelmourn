@@ -2,6 +2,8 @@ package com.vaelmourn;
 
 import com.jme3.anim.AnimComposer;
 import com.jme3.app.SimpleApplication;
+import com.jme3.app.DebugKeysAppState;
+import com.jme3.app.StatsAppState;
 import com.jme3.bounding.BoundingBox;
 import com.jme3.bullet.BulletAppState;
 import com.jme3.bullet.collision.shapes.BoxCollisionShape;
@@ -164,6 +166,11 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
         bulletAppState = new BulletAppState();
         stateManager.attach(bulletAppState);
+
+        // Disable the default debug overlays (FPS/stats HUD and debug keys) so
+        // they don't render on-screen text (bottom-left numbers) in the game UI.
+        stateManager.detach(stateManager.getState(StatsAppState.class));
+        stateManager.detach(stateManager.getState(DebugKeysAppState.class));
 
         forestZoneNode = new Node("ForestZone");
         rootNode.attachChild(forestZoneNode);

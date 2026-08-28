@@ -4,6 +4,8 @@ import com.jme3.asset.AssetManager;
 import com.jme3.font.BitmapFont;
 import com.jme3.font.BitmapText;
 import com.jme3.input.InputManager;
+import com.jme3.light.AmbientLight;
+import com.jme3.light.DirectionalLight;
 import com.jme3.material.Material;
 import com.jme3.math.ColorRGBA;
 import com.jme3.math.Vector2f;
@@ -22,23 +24,25 @@ import com.jme3.texture.Texture;
 import com.jme3.texture.Texture2D;
 
 /**
- * Survival-game style player inventory / equipment screen.
+ * Player inventory / equipment screen. Toggle with E.
  *
- * The whole inventory is one cohesive equipment screen:
- *   - a translucent full-screen overlay over the world
- *   - a compact top bar with player level/name, HP / MP / XP bars and Soul Dust
- *   - a 5x5 item grid (left / center-left)
- *   - a paper-doll character preview with 5 equipment slots around it
- *   - a 5-slot quick-access toolbar across the bottom
+ * Layout (proportions derive from a 1920x1080 reference, scaled otherwise):
+ *   - a centered rounded panel (~90% width x ~85% height)
+ *   - left column: "Inventory" label + 5x5 grid, then "Toolbar" label + 5
+ *     restricted slots (weapons / potions / keys) with a distinct accent border
+ *   - a cohesive right-side block containing (tightly grouped):
+ *       * "[Level] | [PlayerName]" with an HP bar (green) and XP bar (blue)
+ *         beneath it, Soul Dust grouped beside the name
+ *       * a bordered, no-fill character preview window (~25% panel W x ~60%
+ *         panel H) rendering the player model via render-to-texture
+ *       * a vertical column of 5 equipment slots (helmet, chestplate, leggings,
+ *         boots, shield) with distinct faint silhouette icons, plus a trash slot
+ *       * a gold-accented stats bar below the preview (damage / armor / movement
+ *         speed / attack speed), data-driven from PlayerStats
  *
- * This implementation reuses the project's data model (Inventory, PlayerStats,
- * ItemRegistry) and supports real interactions: left-click to select, drag
- * (a ghost follows the cursor) and drop into compatible slots, hover
- * highlighting, a built-in item tooltip, and strict equipment/toolbar type
- * compatibility.
- *
- * No values are hardcoded in here for currency / stats / level / name — they
- * all come from the supplied PlayerStats and Inventory.
+ * Interactions: left-click to select, drag (ghost follows cursor) and drop with
+ * strict equipment/toolbar compatibility, hover highlighting, item tooltip and a
+ * two-step trash confirmation.
  */
 public class InventoryUI {
 
@@ -51,20 +55,40 @@ public class InventoryUI {
     private final Node hudNode = new Node("InventoryHUD");
     private BitmapFont font;
 
-    private final int S = 54;   // slot size
-    private final int G = 7;    // gap between slots
+    private final float sx;
+    private final float sy;
 
-    // ---- top info strip ----
-    private BitmapText levelText;
-    private BitmapText levelLabel;
-    private BitmapText nameText;
-    private Geometry hpBar, mpBar, xpBar;
-    private BitmapText hpText, mpText, xpText;
+    private float pw, ph, px, py;         // panel
+    private float panelTop, panelRight;
+    private float slot, gap, eqSlot, eqGap;
+    private float playerBlockLeft;        // left edge of the cohesive right block
+    private float previewLeft, previewBottom, previewW, previewH;
+
+    private static final ColorRGBA DEFAULT_EQUIP_SIL_COLOR = new ColorRGBA(0.55f, 0.58f, 0.62f, 0.30f);
+
+    private static final Inventory.EquipSlot[] EQUIP_VISUAL = {
+            Inventory.EquipSlot.HELMET,
+            Inventory.EquipSlot.CHESTPLATE,
+            Inventory.EquipSlot.LEGGINGS,
+            Inventory.EquipSlot.BOOTS,
+            Inventory.EquipSlot.SHIELD
+    };
+
+    // ---- identity (top of right block) ----
+    private BitmapText identityText;
+    private float identityX, barX;
+    private Geometry hpTrack, hpFill, xpTrack, xpFill;
+    private float hpBottomY, xpBottomY, barThick;
+
+    // ---- soul dust ----
     private BitmapText soulText;
-    private float barW;
+    private float soulIconX, soulIconY;
 
-    // ---- slot views ----
-    private enum SlotKind { GRID, TOOLBAR, EQUIPMENT }
+    // ---- stats bar ----
+    private final BitmapText[] statValues = new BitmapText[4];
+
+    // ---- slots ----
+    private enum SlotKind { GRID, TOOLBAR, EQUIPMENT, TRASH }
 
     private static class SlotView {
         final Node root;
@@ -72,49 +96,53 @@ public class InventoryUI {
         final Geometry icon;
         final BitmapText label;
         final BitmapText count;
+        final Node silhouette;
         final Slot data;
         final SlotKind kind;
-        final int index;
+        final Inventory.EquipSlot equipSlot;
         float x, y;
 
         SlotView(Node root, Geometry border, Geometry icon,
-                 BitmapText label, BitmapText count,
-                 Slot data, SlotKind kind, int index, float x, float y) {
+                 BitmapText label, BitmapText count, Node silhouette,
+                 Slot data, SlotKind kind, Inventory.EquipSlot equipSlot,
+                 float x, float y) {
             this.root = root;
             this.border = border;
             this.icon = icon;
             this.label = label;
             this.count = count;
+            this.silhouette = silhouette;
             this.data = data;
             this.kind = kind;
-            this.index = index;
+            this.equipSlot = equipSlot;
             this.x = x;
             this.y = y;
         }
     }
 
     private final SlotView[] gridViews = new SlotView[Inventory.GRID_SIZE];
-    private final SlotView[] equipViews = new SlotView[Inventory.EQUIPMENT_SLOTS.length];
+    private final SlotView[] equipViews = new SlotView[EQUIP_VISUAL.length];
     private final SlotView[] toolbarViews = new SlotView[Inventory.TOOLBAR_SIZE];
+    private SlotView trashView;
 
-    // ---- interaction state ----
+    // ---- interaction ----
     private SlotView selected;
     private SlotView hovered;
     private int denyTimer = 0;
     private SlotView denySlot;
+    private int trashArmTimer = 0;
+    private static final int TRASH_ARM = 90;
 
-    // ---- tooltip ----
+    // ---- tooltip / drag ghost ----
     private final Node tooltipNode = new Node("Tooltip");
     private Geometry tooltipBg;
     private BitmapText tooltipTitle;
     private BitmapText tooltipBody;
-
-    // ---- drag ghost ----
     private final Node ghostNode = new Node("DragGhost");
     private Geometry ghostIcon;
     private BitmapText ghostCount;
 
-    // ---- character preview (render-to-texture) ----
+    // ---- character preview (RTT) ----
     private boolean previewReady = false;
     private Texture2D previewTex;
     private Geometry previewQuad;
@@ -123,6 +151,7 @@ public class InventoryUI {
     private ViewPort previewView;
 
     private boolean visible = false;
+    private boolean xpFractionLogged = false;
 
     public InventoryUI(AssetManager assetManager, RenderManager renderManager,
                        InputManager inputManager, Camera cam,
@@ -134,16 +163,22 @@ public class InventoryUI {
         this.inventory = inventory;
         this.stats = stats;
 
+        this.sx = screenW / 1920f;
+        this.sy = screenH / 1080f;
+
         font = assetManager.loadFont("Interface/Fonts/Default.fnt");
 
+        layout();
         buildOverlay(screenW, screenH);
-        buildTopInfo(screenW, screenH);
-        buildSlots(screenW, screenH);
+        buildPanel();
+        buildGridAndToolbar();
+        buildRightBlock();
+        buildPreview(cam, playerModel);
+        buildPreviewFrame();       // border outline drawn ON TOP of the render
         buildTooltip();
         buildGhost();
-        buildPreview(cam, playerModel, screenW, screenH);
 
-        hudNode.setCullHint(Spatial.CullHint.Always);
+        setVisible(false);
     }
 
     // ================= public API =================
@@ -164,7 +199,6 @@ public class InventoryUI {
         return hudNode;
     }
 
-    /** Called when the primary mouse button is pressed while the inventory is open. */
     public void handlePrimaryClick() {
         if (!visible) return;
         Vector2f cur = inputManager.getCursorPosition();
@@ -189,223 +223,309 @@ public class InventoryUI {
 
     public void update(float tpf, Camera cam) {
         if (!visible) return;
-
         updatePreview(cam);
         updatePointer();
-        refreshBars();
+        refreshIdentityBars();
         refreshSoulDust();
+        refreshStats();
         refreshSlots();
     }
 
-    // ================= background overlay =================
+    // ================= layout =================
+
+    private void layout() {
+        pw = 1728f * sx;
+        ph = 918f * sy;
+        px = (1920f * sx - pw) / 2f;
+        py = (1080f * sy - ph) / 2f;
+        panelTop = py + ph;
+        panelRight = px + pw;
+
+        slot = 54f * sx;
+        gap = 14f * sx;
+        eqSlot = 48f * sx;
+        eqGap = 10f * sx;
+    }
 
     private void buildOverlay(int W, int H) {
-        // darkened translucent overlay over the world — not an opaque panel
-        Geometry overlay = quad(0, 0, W, H, new ColorRGBA(0.02f, 0.02f, 0.03f, 0.78f));
+        Geometry overlay = quad(0, 0, W, H, new ColorRGBA(0.02f, 0.02f, 0.03f, 0.75f));
         hudNode.attachChild(overlay);
-
-        // subtle vignette band at top and bottom to frame the layout
-        quadAttach(0, H - 6, W, 2, new ColorRGBA(0.45f, 0.5f, 0.5f, 0.35f));
-        quadAttach(0, 4, W, 2, new ColorRGBA(0.45f, 0.5f, 0.5f, 0.35f));
     }
 
-    private void buildTopInfo(int W, int H) {
-        float infoTop = H - 14f;
-        float infoBottom = H - 104f;
-
-        // semi-transparent status band (not opaque)
-        quadAttach(24, infoBottom - 4, W - 48, infoTop - infoBottom + 8,
-                new ColorRGBA(0.08f, 0.09f, 0.10f, 0.55f));
-
-        // --- level + name (left) ---
-        levelText = addText(hudNode, "01", 58f, infoTop - 62f, 46f, new ColorRGBA(0.92f, 0.95f, 0.98f, 1f));
-        levelLabel = addText(hudNode, "LEVEL", 60f, infoTop - 96f, 13f, new ColorRGBA(0.55f, 0.62f, 0.66f, 1f));
-        nameText = addText(hudNode, "PLAYER", 172f, infoTop - 40f, 25f, new ColorRGBA(0.93f, 0.95f, 0.97f, 1f));
-
-        // --- XP bar (under name) ---
-        addText(hudNode, "XP", 176f, infoTop - 88f, 14f, new ColorRGBA(0.62f, 0.68f, 0.72f, 1f));
-        barW = 360f;
-        quadAttach(210f, infoTop - 92f, barW, 14f, new ColorRGBA(0.05f, 0.06f, 0.08f, 0.85f));
-        xpBar = quad(210f, infoTop - 92f, 1f, 14f, new ColorRGBA(0.45f, 0.62f, 0.30f, 1f));
-        hudNode.attachChild(xpBar);
-        xpText = addText(hudNode, "0 / 100", 212f, infoTop - 90f, 11f, new ColorRGBA(0.95f, 0.97f, 0.9f, 1f));
-
-        // --- HP / MP bars (middle) ---
-        float hx = 620f;
-        float bx = hx + 40f;
-        float bw = 300f;
-
-        addText(hudNode, "HP", hx, infoTop - 52f, 15f, new ColorRGBA(0.95f, 0.55f, 0.5f, 1f));
-        quadAttach(bx, infoTop - 56f, bw, 16f, new ColorRGBA(0.05f, 0.06f, 0.08f, 0.85f));
-        hpBar = quad(bx, infoTop - 56f, 1f, 16f, new ColorRGBA(0.78f, 0.26f, 0.24f, 1f));
-        hudNode.attachChild(hpBar);
-        hpText = addText(hudNode, "100 / 100", bx + 4f, infoTop - 53f, 11f, ColorRGBA.White);
-        addText(hudNode, "MP", hx, infoTop - 90f, 15f, new ColorRGBA(0.5f, 0.62f, 0.95f, 1f));
-        quadAttach(bx, infoTop - 94f, bw, 16f, new ColorRGBA(0.05f, 0.06f, 0.08f, 0.85f));
-        mpBar = quad(bx, infoTop - 94f, 1f, 16f, new ColorRGBA(0.28f, 0.46f, 0.92f, 1f));
-        hudNode.attachChild(mpBar);
-        mpText = addText(hudNode, "100 / 100", bx + 4f, infoTop - 91f, 11f, ColorRGBA.White);
-
-        // --- Soul Dust (top-right) ---
-        float sx = W - 320f;
-        quadAttach(sx, infoTop - 36f, 20f, 20f, new ColorRGBA(0.55f, 0.8f, 0.95f, 1f));
-        addText(hudNode, "SOUL DUST", sx + 28f, infoTop - 34f, 13f, new ColorRGBA(0.6f, 0.68f, 0.72f, 1f));
-        soulText = addText(hudNode, "0", sx + 28f, infoTop - 62f, 30f, new ColorRGBA(0.85f, 0.95f, 1f, 1f));
+    private void buildPanel() {
+        float r = Math.min(16f * sx, slot * 0.5f);
+        float t = Math.max(1f, 2f * sx);
+        quadAttach(px + 4, py - 4, pw, ph, new ColorRGBA(0f, 0f, 0f, 0.35f));
+        roundedRect(px, py, pw, ph, r, new ColorRGBA(0.08f, 0.09f, 0.11f, 0.86f));
+        borderStroke(px, py, pw, ph, t, new ColorRGBA(0.30f, 0.34f, 0.36f, 1f));
     }
 
-    // ================= slots =================
+    // ================= left column =================
 
-    private void buildSlots(int W, int H) {
-        int gridW = 5 * S + 4 * G;
-        int gridH = gridW;
-        int toolbarW = 5 * S + 4 * G;
+    private void buildGridAndToolbar() {
+        float gridLabelY = panelTop - 0.05f * ph;
+        addText(hudNode, "Inventory", px + 0.03f * pw, gridLabelY, 18f * sy,
+                new ColorRGBA(0.72f, 0.78f, 0.82f, 1f));
+        float gridLeft = px + 0.03f * pw;
+        float gridTopY = gridLabelY - 30f * sy;
+        float gridBottomY = gridTopY - (5 * slot + 4 * gap);
+        buildGrid(gridLeft, gridBottomY);
 
-        // toolbar near the bottom, centered
-        float toolbarY = 30f;
-        float toolbarX = W / 2f - toolbarW / 2f;
-
-        // vertical band available for the main composition
-        float bandTop = H - 104f - 16f;
-        float bandBottom = toolbarY + S + 24f;
-        float bandMid = (bandTop + bandBottom) / 2f;
-
-        // grid panel (left / center-left)
-        float gridPad = 22f;
-        float gridPanelW = gridW + gridPad * 2f;
-        float gridPanelH = gridH + 58f;
-        float gridPanelX = 60f;
-        float gridPanelY = bandMid - gridPanelH / 2f;
-        panel(gridPanelX, gridPanelY, gridPanelW, gridPanelH, "INVENTORY");
-        float gridX = gridPanelX + (gridPanelW - gridW) / 2f;
-        float gridY = gridPanelY + (gridPanelH - 28f - gridH) / 2f;
-        buildGrid(gridX, gridY);
-
-        // character / equipment panel (center)
-        float panelW = 560f;
-        float panelH = 560f;
-        float panelX = gridPanelX + gridPanelW + 30f;
-        float panelY = bandMid - panelH / 2f;
-        panel(panelX, panelY, panelW, panelH, "EQUIPMENT");
-
-        // paper-doll character render
-        float renderW = 250f;
-        float renderH = 400f;
-        float renderX = panelX + (panelW - renderW) / 2f;
-        float helmetY = panelY + panelH - 28f - S;   // slot bottom y
-        float bootsY = panelY + 16f;
-        float renderY = bootsY + S + 14f;
-        previewLTRB(renderX, renderY, renderW, renderH);
-
-        // 5 equipment slots arranged around the paper-doll
-        // order: 0 HELMET, 1 CHESTPLATE, 2 LEGGINGS, 3 SHIELD, 4 BOOTS
-        float midY = panelY + panelH / 2f - S / 2f;
-        buildEquipSlot(3, panelX + 16f, midY, "SHIELD");   // shield (left)
-        buildEquipSlot(1, panelX + panelW - 16f - S, midY, "CHESTPLATE"); // right
-        buildEquipSlot(0, panelX + (panelW - S) / 2f, helmetY, "HELMET"); // top
-        buildEquipSlot(2, panelX + 16f, panelY + 90f, "LEGGINGS");        // lower-left
-        buildEquipSlot(4, panelX + (panelW - S) / 2f, bootsY, "BOOTS");   // bottom
-
-        // toolbar panel (bottom)
-        float toolPad = 20f;
-        float toolPanelW = toolbarW + toolPad * 2f;
-        quadAttach(toolbarX - toolPad, toolbarY - 14f, toolPanelW, S + 24f,
-                new ColorRGBA(0.07f, 0.08f, 0.09f, 0.6f));
-        addText(hudNode, "QUICK ACCESS", toolbarX - toolPad, toolbarY + S + 8f, 13f,
-                new ColorRGBA(0.55f, 0.62f, 0.66f, 1f));
-        buildToolbar(toolbarX, toolbarY);
+        float toolbarLabelY = gridBottomY - 32f * sy;
+        addText(hudNode, "Toolbar", gridLeft, toolbarLabelY, 18f * sy,
+                new ColorRGBA(0.72f, 0.78f, 0.82f, 1f));
+        float toolbarY = toolbarLabelY - 30f * sy;
+        buildToolbar(gridLeft, toolbarY);
     }
 
     private void buildGrid(float left, float bottom) {
         for (int r = 0; r < Inventory.GRID_ROWS; r++) {
             for (int c = 0; c < Inventory.GRID_COLS; c++) {
                 int idx = r * Inventory.GRID_COLS + c;
-                float x = left + c * (S + G);
-                float y = bottom + r * (S + G);
+                float x = left + c * (slot + gap);
+                float y = bottom + r * (slot + gap);
                 gridViews[idx] = createSlot(x, y, inventory.getGridSlot(idx),
-                        SlotKind.GRID, idx, false);
+                        SlotKind.GRID, null, 0.20f, 0.22f, 0.24f);
             }
         }
     }
 
     private void buildToolbar(float left, float bottom) {
+        ColorRGBA accent = new ColorRGBA(0.28f, 0.60f, 0.66f, 1f);
         for (int i = 0; i < Inventory.TOOLBAR_SIZE; i++) {
-            float x = left + i * (S + G);
+            float x = left + i * (slot + gap);
             SlotView v = createSlot(x, bottom, inventory.getToolbarSlot(i),
-                    SlotKind.TOOLBAR, i, false);
+                    SlotKind.TOOLBAR, null, accent.r, accent.g, accent.b);
             toolbarViews[i] = v;
-            // show the hotbar number in the top-left corner
-            BitmapText num = addText(hudNode, "" + (i + 1), x + 3f, bottom + S - 14f, 12f,
-                    new ColorRGBA(0.5f, 0.56f, 0.6f, 1f));
+            BitmapText num = addText(hudNode, "" + (i + 1), x + 3f * sx, bottom + slot - 14f * sy,
+                    12f * sy, new ColorRGBA(0.50f, 0.56f, 0.60f, 1f));
             v.root.getParent().attachChild(num);
         }
     }
 
-    private void buildEquipSlot(int equipIndex, float x, float y, String label) {
-        SlotView v = createSlot(x, y, inventory.getEquipSlot(Inventory.EquipSlot.values()[equipIndex]),
-                SlotKind.EQUIPMENT, equipIndex, true);
-        equipViews[equipIndex] = v;
-        addText(hudNode, label, x + 6f, y - 12f, 11f, new ColorRGBA(0.45f, 0.5f, 0.55f, 1f));
+    // ================= cohesive right block =================
+
+    private void buildRightBlock() {
+        // Preview window: 25% of panel width x 60% of panel height.
+        previewW = 0.25f * pw;
+        previewH = 0.60f * ph;
+
+        // Stats bar sits below the preview.
+        float statsY = py + 34f * sy;
+        float statsH = 96f * sy;
+
+        // Preview is placed just above the stats bar.
+        previewBottom = statsY + statsH + 18f * sy;
+        float previewTop = previewBottom + previewH;
+
+        // Anchor the right block to the grid's right edge (Bug 4), not the panel's,
+        // so the two halves sit close together with no dead space in between.
+        float gridLeft = px + 0.03f * pw;
+        float gridRight = gridLeft + (Inventory.GRID_COLS * slot + (Inventory.GRID_COLS - 1) * gap);
+        float fixedSpacing = 48f * sx;
+        playerBlockLeft = gridRight + fixedSpacing;
+
+        float colX = playerBlockLeft + previewW + 14f * sx; // equipment column right of preview
+        previewLeft = playerBlockLeft;
+
+        // Identity block above the preview.
+        identityX = previewLeft;
+        barX = identityX;
+
+        barThick = Math.max(1.5f, 4f * sy);
+        // Name text draws downward from its top-left anchor, so the bar baseline uses
+        // the measured line height instead of a flat guess.
+        float idLineH = 26f * sy;
+        hpBottomY = previewTop + 34f * sy - idLineH - 6f * sy;
+        xpBottomY = hpBottomY - (barThick + 5f * sy);
+
+        // Build both track and fill meshes at width 1f so local scale == real pixel width.
+        // Track color must be clearly distinct from the panel background (0.08,0.09,0.11)
+        // so the empty-state bar is visible even at fraction 0.
+        ColorRGBA trackCol = new ColorRGBA(0.16f, 0.17f, 0.19f, 0.95f);
+        hpTrack = quad(barX, hpBottomY, 1f, barThick, trackCol);
+        hudNode.attachChild(hpTrack);
+        hpFill = quad(barX, hpBottomY, 1f, barThick, new ColorRGBA(0.30f, 0.70f, 0.28f, 1f));
+        hudNode.attachChild(hpFill);
+
+        xpTrack = quad(barX, xpBottomY, 1f, barThick, trackCol);
+        hudNode.attachChild(xpTrack);
+        xpFill = quad(barX, xpBottomY, 1f, barThick, new ColorRGBA(0.28f, 0.48f, 0.92f, 1f));
+        hudNode.attachChild(xpFill);
+
+        // Identity text attached AFTER the bars so it draws on top (Bug 2).
+        identityText = addText(hudNode, "00 | Player", identityX, previewTop + 34f * sy, idLineH,
+                new ColorRGBA(0.94f, 0.96f, 0.98f, 1f));
+
+        // Soul Dust grouped beside the name (to the right of the identity block).
+        float idBaseline = previewTop + 34f * sy;
+        soulIconX = identityX + identityText.getLineWidth() + 24f * sx;
+        soulIconY = idBaseline - idLineH - 30f * sy;
+        quadAttach(soulIconX, soulIconY, 22f * sx, 22f * sy, new ColorRGBA(0.55f, 0.80f, 0.95f, 1f));
+        addText(hudNode, "SOUL DUST", soulIconX + 30f * sx, soulIconY + 12f * sy, 12f * sy,
+                new ColorRGBA(0.62f, 0.70f, 0.74f, 1f));
+        soulText = addText(hudNode, "0", soulIconX + 30f * sx, soulIconY - 22f * sy, 22f * sy,
+                new ColorRGBA(0.86f, 0.95f, 1f, 1f));
+
+        // Equipment column + trash (right of the preview).
+        for (int i = 0; i < EQUIP_VISUAL.length; i++) {
+            float top = previewTop - i * (eqSlot + eqGap);
+            buildEquipSlot(i, colX, top - eqSlot, EQUIP_VISUAL[i]);
+        }
+        float trashTop = (previewTop - (EQUIP_VISUAL.length - 1) * (eqSlot + eqGap) - eqSlot) - 20f * sx;
+        buildTrash(colX, trashTop - eqSlot);
+
+        buildStatsBar(statsY, statsH);
     }
 
-    /** Creates a single slot: border + dark background + icon + labels. */
-    private SlotView createSlot(float x, float y, Slot data, SlotKind kind, int index, boolean equipLabel) {
+    private void buildEquipSlot(int visualIndex, float x, float y, Inventory.EquipSlot slotType) {
+        SlotView v = createSlot(x, y, inventory.getEquipSlot(slotType),
+                SlotKind.EQUIPMENT, slotType, 0.22f, 0.24f, 0.26f);
+        equipViews[visualIndex] = v;
+    }
+
+    private void buildTrash(float x, float y) {
+        trashView = createSlot(x, y, new Slot(null, 0), SlotKind.TRASH, null,
+                0.34f, 0.16f, 0.16f);
+    }
+
+    // ================= stats bar =================
+
+    private void buildStatsBar(float y, float h) {
+        float statsW = previewW;
+        float statsX = previewLeft;
+
+        quad(statsX, y, statsW, h, new ColorRGBA(0.07f, 0.08f, 0.10f, 0.9f));
+        float t = Math.max(1f, 2f * sx);
+        borderStroke(statsX, y, statsW, h, t, new ColorRGBA(0.85f, 0.70f, 0.32f, 1f));
+
+        String[] icons = { "DMG", "ARM", "MSPD", "ATK SPD" };
+        float segW = statsW / 4f;
+        for (int i = 0; i < 4; i++) {
+            float segX = statsX + i * segW;
+            // centered icon label near the top of the segment
+            BitmapText icon = addText(hudNode, icons[i], 0, 0, 15f * sy,
+                    new ColorRGBA(0.88f, 0.74f, 0.38f, 1f));
+            icon.setLocalTranslation(segX + segW / 2f - icon.getLineWidth() / 2f, y + h - 20f * sy, 0f);
+            // centered numeric value
+            statValues[i] = addText(hudNode, "0", 0, 0, 28f * sy, ColorRGBA.White);
+            statValues[i].setLocalTranslation(segX + segW / 2f - statValues[i].getLineWidth() / 2f,
+                    y + 14f * sy, 0f);
+            if (i < 3) {
+                quad(segX + segW, y + 6f * sy, Math.max(1f, sx), h - 12f * sy,
+                        new ColorRGBA(0.35f, 0.30f, 0.20f, 0.8f));
+            }
+        }
+    }
+
+    // ================= slot creation =================
+
+    private SlotView createSlot(float x, float y, Slot data, SlotKind kind,
+                                Inventory.EquipSlot equipSlot,
+                                float br, float bg, float bb) {
         Node root = new Node("slot");
         hudNode.attachChild(root);
 
-        // drop shadow
-        Geometry shadow = quad(x + 2, y - 2, S, S, new ColorRGBA(0f, 0f, 0f, 0.5f));
+        Geometry shadow = quad(x + 2f, y - 2f, slot, slot, new ColorRGBA(0f, 0f, 0f, 0.5f));
         root.attachChild(shadow);
 
-        // border (recolored for hover/selection)
-        Geometry border = quad(x - 1, y - 1, S + 2, S + 2, new ColorRGBA(0.22f, 0.24f, 0.26f, 1f));
+        Geometry border = quad(x - 1f, y - 1f, slot + 2f, slot + 2f,
+                new ColorRGBA(br, bg, bb, 1f));
         root.attachChild(border);
 
-        // dark translucent background
-        Geometry bg = quad(x, y, S, S, new ColorRGBA(0.10f, 0.11f, 0.13f, 0.92f));
-        root.attachChild(bg);
+        Geometry bgq = quad(x, y, slot, slot, new ColorRGBA(0.10f, 0.11f, 0.13f, 0.92f));
+        root.attachChild(bgq);
 
-        // item icon tile (hidden when empty)
-        Geometry icon = quad(x + 3, y + 3, S - 6, S - 6, new ColorRGBA(0.2f, 0.2f, 0.2f, 1f));
+        Geometry icon = quad(x + 3f, y + 3f, slot - 6f, slot - 6f,
+                new ColorRGBA(0.2f, 0.2f, 0.2f, 1f));
         icon.setCullHint(Spatial.CullHint.Always);
         root.attachChild(icon);
 
-        // item initial + count
+        Node silhouette = buildSilhouette(x, y, kind, equipSlot);
+        if (silhouette != null) root.attachChild(silhouette);
+
         BitmapText label = new BitmapText(font);
-        label.setSize(20f);
+        label.setSize(19f * sy);
         label.setColor(new ColorRGBA(0.9f, 0.92f, 0.95f, 1f));
-        label.setLocalTranslation(x + S / 2f - 8f, y + S / 2f - 14f, 0f);
+        label.setLocalTranslation(x + slot / 2f - 7f, y + slot / 2f + label.getLineHeight() / 2f, 0f);
         root.attachChild(label);
 
         BitmapText count = new BitmapText(font);
-        count.setSize(14f);
+        count.setSize(13f * sy);
         count.setColor(new ColorRGBA(0.95f, 0.85f, 0.55f, 1f));
-        count.setLocalTranslation(x + S - 24f, y + 2f, 0f);
+        count.setLocalTranslation(x + slot - 20f * sx, y + 2f * sy + count.getLineHeight() / 2f, 0f);
         root.attachChild(count);
 
-        return new SlotView(root, border, icon, label, count, data, kind, index, x, y);
+        return new SlotView(root, border, icon, label, count, silhouette, data, kind, equipSlot, x, y);
     }
 
-    // ================= character preview =================
+    // ================= equipment / trash silhouette icons =================
 
-    private void previewLTRB(float left, float bottom, float w, float h) {
-        // just record the quad area on the GUI (the actual RTT quad is built later)
-        previewRectLeft = left;
-        previewRectBottom = bottom;
-        previewRectW = w;
-        previewRectH = h;
+    /** Builds a faint per-type silhouette. Returns null for plain grid/toolbar slots. */
+    private Node buildSilhouette(float x, float y, SlotKind kind, Inventory.EquipSlot es) {
+        Node n = null;
+        if (kind == SlotKind.TRASH) {
+            n = new Node("sil-trash");
+            ColorRGBA col = new ColorRGBA(0.72f, 0.28f, 0.24f, 0.55f);
+            float s = eqSlot;
+            float c = x + s / 2f, m = y + s / 2f, u = s / 8f;
+            sil(n, c - 2.2f * u, m + 1.5f * u, 4.4f * u, 0.8f * u, col);  // lid
+            sil(n, c + 0.4f * u, m + 2.3f * u, 1.6f * u, 0.8f * u, col);  // handle
+            sil(n, c - 1.8f * u, m - 2.4f * u, 3.6f * u, 3.4f * u, col);  // bin body
+            sil(n, c - 0.5f * u, m - 0.6f * u, 1.0f * u, 0.7f * u,
+                    new ColorRGBA(0.10f, 0.11f, 0.13f, 0.9f));            // opening
+        } else if (kind == SlotKind.EQUIPMENT) {
+            n = new Node("sil-equip");
+            ColorRGBA col = new ColorRGBA(0.55f, 0.58f, 0.62f, 0.30f);
+            float s = eqSlot;
+            float c = x + s / 2f, m = y + s / 2f, u = s / 9f;
+            switch (es) {
+                case HELMET -> {
+                    sil(n, c - 1.9f * u, m + 0.8f * u, 3.8f * u, 1.8f * u, col);
+                    sil(n, c - 2.3f * u, m - 0.5f * u, 4.6f * u, 0.6f * u, col);
+                }
+                case CHESTPLATE -> {
+                    sil(n, c - 1.5f * u, m - 2.0f * u, 3.0f * u, 3.4f * u, col);
+                    sil(n, c - 2.3f * u, m + 0.4f * u, 1.5f * u, 1.3f * u, col);
+                    sil(n, c + 0.8f * u, m + 0.4f * u, 1.5f * u, 1.3f * u, col);
+                }
+                case LEGGINGS -> {
+                    sil(n, c - 1.9f * u, m + 0.5f * u, 3.8f * u, 0.8f * u, col);
+                    sil(n, c - 1.4f * u, m - 2.4f * u, 1.2f * u, 2.5f * u, col);
+                    sil(n, c + 0.2f * u, m - 2.4f * u, 1.2f * u, 2.5f * u, col);
+                }
+                case BOOTS -> {
+                    sil(n, c - 1.6f * u, m - 1.8f * u, 1.6f * u, 1.3f * u, col);
+                    sil(n, c - 1.6f * u, m - 0.5f * u, 2.0f * u, 0.7f * u, col);
+                    sil(n, c + 0.0f * u, m - 1.8f * u, 1.6f * u, 1.3f * u, col);
+                    sil(n, c + 0.0f * u, m - 0.5f * u, 2.0f * u, 0.7f * u, col);
+                }
+                case SHIELD -> {
+                    sil(n, c - 1.0f * u, m - 2.6f * u, 2.0f * u, 4.6f * u, col);
+                    sil(n, c - 1.0f * u, m + 2.0f * u, 2.0f * u, 0.8f * u, col);
+                }
+                default -> { }
+            }
+        }
+        if (n != null) n.setCullHint(Spatial.CullHint.Always);
+        return n;
     }
 
-    private float previewRectLeft, previewRectBottom, previewRectW, previewRectH;
+    private void sil(Node parent, float x, float y, float w, float h, ColorRGBA col) {
+        parent.attachChild(quad(x, y, w, h, col));
+    }
 
-    private void buildPreview(Camera cam, Spatial playerModel, int W, int H) {
-        int pw = (int) Math.max(32, previewRectW);
-        int ph = (int) Math.max(32, previewRectH);
+    // ================= character preview (RTT) =================
 
-        previewTex = new Texture2D(pw, ph, Image.Format.RGBA8);
+    private void buildPreview(Camera cam, Spatial playerModel) {
+        int tpw = (int) Math.max(32, previewW);
+        int tph = (int) Math.max(32, previewH);
+
+        previewTex = new Texture2D(tpw, tph, Image.Format.RGBA8);
         previewTex.setMinFilter(Texture.MinFilter.BilinearNoMipMaps);
         previewTex.setMagFilter(Texture.MagFilter.Bilinear);
 
-        FrameBuffer fb = new FrameBuffer(pw, ph, 1);
+        FrameBuffer fb = new FrameBuffer(tpw, tph, 1);
         fb.setDepthBuffer(Image.Format.Depth);
         fb.setColorTexture(previewTex);
 
@@ -416,37 +536,45 @@ public class InventoryUI {
             previewRoot.attachChild(previewModel);
         }
 
-        com.jme3.light.DirectionalLight sun = new com.jme3.light.DirectionalLight();
+        DirectionalLight sun = new DirectionalLight();
         sun.setDirection(new Vector3f(-0.4f, -1f, -0.4f).normalizeLocal());
         sun.setColor(ColorRGBA.White);
         previewRoot.addLight(sun);
-        com.jme3.light.AmbientLight ambient = new com.jme3.light.AmbientLight();
+        AmbientLight ambient = new AmbientLight();
         ambient.setColor(ColorRGBA.White.mult(1.1f));
         previewRoot.addLight(ambient);
 
         Camera offCam = cam.clone();
-        offCam.setFrustumPerspective(45f, (float) pw / ph, 0.1f, 100f);
-        offCam.setLocation(new Vector3f(0, 1.1f, 2.6f));
+        offCam.setFrustumPerspective(45f, (float) tpw / tph, 0.1f, 100f);
+        offCam.setLocation(new Vector3f(0, 1.15f, 2.8f));
         offCam.lookAt(new Vector3f(0, 1f, 0), Vector3f.UNIT_Y);
 
         ViewPort off = renderManager.createMainView("inventoryPreview", offCam);
         off.setClearFlags(true, true, true);
-        off.setBackgroundColor(new ColorRGBA(0.08f, 0.09f, 0.11f, 0f)); // transparent-ish
+        // Clear to the same color as the panel interior so we don't get a black box.
+        off.setBackgroundColor(new ColorRGBA(0.08f, 0.09f, 0.11f, 1f));
         off.attachScene(previewRoot);
         off.setOutputFrameBuffer(fb);
         renderManager.removeMainView(off);
         previewView = off;
         previewReady = true;
 
-        // textured quad on the GUI at the recorded position
         Material mat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
         mat.setTexture("ColorMap", previewTex);
-        Quad q = new Quad(previewRectW, previewRectH);
+        Quad q = new Quad(previewW, previewH);
         previewQuad = new Geometry("previewQuad", q);
         previewQuad.setMaterial(mat);
         previewQuad.setQueueBucket(RenderQueue.Bucket.Gui);
-        previewQuad.setLocalTranslation(previewRectLeft, previewRectBottom, 0f);
+        previewQuad.setLocalTranslation(previewLeft, previewBottom, 0f);
         hudNode.attachChild(previewQuad);
+    }
+
+    /** Draws the 2px border-only outline of the preview window, on top of the render. */
+    private void buildPreviewFrame() {
+        float t = Math.max(1f, 2f * sx);
+        borderStroke(previewLeft - 2f * sx, previewBottom - 2f * sy,
+                previewW + 4f * sx, previewH + 4f * sy, t,
+                new ColorRGBA(0.36f, 0.40f, 0.42f, 1f));
     }
 
     private void updatePreview(Camera cam) {
@@ -462,11 +590,11 @@ public class InventoryUI {
         tooltipBg = quad(0, 0, 1, 1, new ColorRGBA(0.07f, 0.08f, 0.10f, 0.96f));
         tooltipNode.attachChild(tooltipBg);
         tooltipTitle = new BitmapText(font);
-        tooltipTitle.setSize(16f);
+        tooltipTitle.setSize(16f * sy);
         tooltipTitle.setColor(new ColorRGBA(0.92f, 0.95f, 0.98f, 1f));
         tooltipNode.attachChild(tooltipTitle);
         tooltipBody = new BitmapText(font);
-        tooltipBody.setSize(12f);
+        tooltipBody.setSize(12f * sy);
         tooltipBody.setColor(new ColorRGBA(0.6f, 0.68f, 0.72f, 1f));
         tooltipNode.attachChild(tooltipBody);
         tooltipNode.setCullHint(Spatial.CullHint.Always);
@@ -474,10 +602,10 @@ public class InventoryUI {
 
     private void buildGhost() {
         hudNode.attachChild(ghostNode);
-        ghostIcon = quad(0, 0, S - 4, S - 4, new ColorRGBA(0.7f, 0.7f, 0.7f, 0.9f));
+        ghostIcon = quad(0, 0, slot - 4f, slot - 4f, new ColorRGBA(0.7f, 0.7f, 0.7f, 0.9f));
         ghostNode.attachChild(ghostIcon);
         ghostCount = new BitmapText(font);
-        ghostCount.setSize(15f);
+        ghostCount.setSize(15f * sy);
         ghostCount.setColor(new ColorRGBA(0.98f, 0.88f, 0.6f, 1f));
         ghostNode.attachChild(ghostCount);
         ghostNode.setCullHint(Spatial.CullHint.Always);
@@ -487,34 +615,33 @@ public class InventoryUI {
         Vector2f cur = inputManager.getCursorPosition();
         hovered = slotAt(cur.x, cur.y);
 
-        // --- drag ghost ---
+        float gs = slot - 4f;
         if (selected != null && !selected.data.isEmpty()) {
             Item item = selected.data.getItem();
             ghostNode.setCullHint(Spatial.CullHint.Never);
-            ghostNode.setLocalTranslation(cur.x - (S - 4) / 2f, cur.y - (S - 4) / 2f + 12f, 0f);
-            ghostIcon.getMaterial().setColor("Color",
-                    new ColorRGBA(item.iconColor.r, item.iconColor.g, item.iconColor.b, 0.85f));
+            ghostNode.setLocalTranslation(cur.x - gs / 2f, cur.y - gs / 2f + 12f, 0f);
+            if (item != null) {
+                ghostIcon.getMaterial().setColor("Color",
+                        new ColorRGBA(item.iconColor.r, item.iconColor.g, item.iconColor.b, 0.85f));
+            }
             ghostCount.setText(selected.data.count > 1 ? "" + selected.data.count : "");
-            ghostCount.setLocalTranslation((S - 4) - 22f, (S - 4) - 20f, 0f);
-            ghostNode.getParent().attachChild(ghostNode); // keep on top
+            ghostCount.setLocalTranslation(gs - 22f, gs - 20f, 0f);
+            ghostNode.getParent().attachChild(ghostNode);
         } else {
             ghostNode.setCullHint(Spatial.CullHint.Always);
         }
 
-        // --- tooltip ---
         if (hovered != null && !hovered.data.isEmpty()) {
             Item item = hovered.data.getItem();
             tooltipTitle.setText(item.name);
             tooltipBody.setText(categoryLabel(item.category)
                     + (item.maxStack > 1 ? "  |  x" + hovered.data.count : ""));
             float tw = Math.max(tooltipTitle.getLineWidth(), tooltipBody.getLineWidth()) + 18f;
-            float th = 44f;
-            float tx = cur.x + 14f;
-            float ty = cur.y + 6f;
-            tooltipNode.setLocalTranslation(tx, ty, 0f);
+            float th = 44f * sy;
+            tooltipNode.setLocalTranslation(cur.x + 14f, cur.y + 6f, 0f);
             tooltipBg.setLocalScale(tw, th, 1f);
-            tooltipTitle.setLocalTranslation(5f, th - 18f, 0f);
-            tooltipBody.setLocalTranslation(5f, th - 36f, 0f);
+            tooltipTitle.setLocalTranslation(5f, th - 18f * sy, 0f);
+            tooltipBody.setLocalTranslation(5f, th - 36f * sy, 0f);
             tooltipNode.setCullHint(Spatial.CullHint.Never);
         } else {
             tooltipNode.setCullHint(Spatial.CullHint.Always);
@@ -526,48 +653,48 @@ public class InventoryUI {
         return s.substring(0, 1) + s.substring(1).toLowerCase();
     }
 
-    // ================= interaction helpers =================
+    // ================= interaction =================
 
-    private SlotView slotAt(float px, float py) {
-        SlotView r = find(equipViews, px, py);
+    private SlotView slotAt(float px_, float py_) {
+        SlotView r = find(toolbarViews, px_, py_);
         if (r != null) return r;
-        r = find(gridViews, px, py);
+        r = find(gridViews, px_, py_);
         if (r != null) return r;
-        return find(toolbarViews, px, py);
+        r = find(equipViews, px_, py_);
+        if (r != null) return r;
+        if (trashView != null && px_ >= trashView.x && px_ <= trashView.x + slot
+                && py_ >= trashView.y && py_ <= trashView.y + slot) {
+            return trashView;
+        }
+        return null;
     }
 
-    private SlotView find(SlotView[] arr, float px, float py) {
+    private SlotView find(SlotView[] arr, float px_, float py_) {
         for (SlotView v : arr) {
             if (v == null) continue;
-            if (px >= v.x && px <= v.x + S && py >= v.y && py <= v.y + S) return v;
+            if (px_ >= v.x && px_ <= v.x + slot && py_ >= v.y && py_ <= v.y + slot) return v;
         }
         return null;
     }
 
     private boolean canPlaceIn(SlotView target, Item item) {
         return switch (target.kind) {
-            case GRID -> true;
+            case GRID, TRASH -> true;
             case TOOLBAR ->
                     item.category == Item.Category.WEAPON
                             || item.category == Item.Category.POTION
                             || item.category == Item.Category.KEY;
-            case EQUIPMENT -> item.category == equipCategoryFor(target.index);
+            case EQUIPMENT -> matchEquip(item.category, target.equipSlot);
         };
     }
 
-    private Item.Category equipCategoryFor(int equipIndex) {
-        return switch (equipIndex) {
-            case 0 -> Item.Category.HELMET;
-            case 1 -> Item.Category.CHESTPLATE;
-            case 2 -> Item.Category.LEGGINGS;
-            case 3 -> Item.Category.SHIELD;
-            case 4 -> Item.Category.BOOTS;
-            default -> null;
-        };
+    private boolean matchEquip(Item.Category cat, Inventory.EquipSlot slotType) {
+        if (slotType == null) return false;
+        return cat == Item.Category.valueOf(slotType.toString());
     }
 
     private void tryMove(SlotView from, SlotView to) {
-        if (from.data.isEmpty() || from == to) {
+        if (from == null || from.data.isEmpty() || from == to) {
             clearSelection();
             return;
         }
@@ -576,70 +703,90 @@ public class InventoryUI {
             clearSelection();
             return;
         }
+        if (to == null) {
+            clearSelection();
+            return;
+        }
+        if (to.kind == SlotKind.TRASH) {
+            if (trashArmTimer > 0) {
+                from.data.clear();
+                trashArmTimer = 0;
+                clearSelection();
+            } else {
+                trashArmTimer = TRASH_ARM;
+            }
+            return;
+        }
         if (!canPlaceIn(to, item)) {
-            deny(to); // keep selection so the player can try elsewhere
+            deny(to);
             return;
         }
         inventory.swapMove(from.data, to.data);
         clearSelection();
     }
 
-    private void deny(SlotView slot) {
-        denySlot = slot;
+    private void deny(SlotView slotView) {
+        denySlot = slotView;
         denyTimer = 18;
     }
 
     private void clearSelection() {
         selected = null;
+        trashArmTimer = 0;
     }
 
-    // ================= data refresh =================
+    // ================= refresh =================
 
-    private void refreshBars() {
-        setBar(hpBar, stats.getHealthFraction(), barColor(0.78f, 0.26f, 0.24f, stats.getHealthFraction()));
-        setBar(mpBar, stats.getManaFraction(), barColor(0.28f, 0.46f, 0.92f, stats.getManaFraction()));
-        setBar(xpBar, stats.getExperienceFraction(), barColor(0.45f, 0.62f, 0.30f, stats.getExperienceFraction()));
-
-        hpText.setText((int) stats.getHealth() + " / " + (int) stats.getMaxHealth());
-        mpText.setText((int) stats.getMana() + " / " + (int) stats.getMaxMana());
-        xpText.setText((int) stats.getExperience() + " / " + (int) stats.getExperienceToNext());
-
-        levelText.setText(String.format("%02d", stats.getLevel()));
-        nameText.setText(stats.getPlayerName().toUpperCase());
+    private void refreshIdentityBars() {
+        identityText.setText(String.format("%02d | %s", stats.getLevel(), stats.getPlayerName()));
+        float w = Math.max(24f, identityText.getLineWidth());
+        if (!xpFractionLogged) {
+            xpFractionLogged = true;
+            System.out.println("[InventoryUI] XP fraction at open: "
+                    + stats.getExperienceFraction() + " (xp=" + stats.getExperience()
+                    + " / toNext=" + stats.getExperienceToNext() + ")");
+        }
+        setBar(hpTrack, hpFill, stats.getHealthFraction(), w);
+        setBar(xpTrack, xpFill, stats.getExperienceFraction(), w);
     }
 
-    private void setBar(Geometry bar, float frac, ColorRGBA color) {
-        if (bar == null) return;
-        float w = Math.max(0f, barW * Math.max(0f, Math.min(1f, frac)));
-        bar.setLocalScale(w, 1f, 1f);
-        bar.getMaterial().setColor("Color", color);
-    }
-
-    private ColorRGBA barColor(float r, float g, float b, float frac) {
-        // dim the fill slightly when low
-        float low = frac < 0.25f ? 0.6f : 1f;
-        return new ColorRGBA(r * low, g * low, b * low, 1f);
+    private void setBar(Geometry track, Geometry fill, float frac, float w) {
+        track.setLocalScale(w, 1f, 1f);
+        fill.setLocalScale(w * Math.max(0f, Math.min(1f, frac)), 1f, 1f);
     }
 
     private void refreshSoulDust() {
         soulText.setText("" + stats.getSoulDust());
     }
 
+    private void refreshStats() {
+        statValues[0].setText(String.format("%.0f", stats.getAverageDamage()));
+        statValues[1].setText(String.format("%.0f", stats.getArmorPoints()));
+        statValues[2].setText(String.format("%.1f", stats.getMovementSpeed()));
+        statValues[3].setText(String.format("%.1f", stats.getAttackSpeed()));
+        float segW = previewW / 4f;
+        for (int i = 0; i < 4; i++) {
+            statValues[i].setLocalTranslation(previewLeft + i * segW + segW / 2f
+                    - statValues[i].getLineWidth() / 2f, statValues[i].getLocalTranslation().y, 0f);
+        }
+    }
+
     private void refreshSlots() {
         if (denyTimer > 0) denyTimer--;
         if (denyTimer == 0) denySlot = null;
+        if (trashArmTimer > 0) trashArmTimer--;
 
-        refreshArray(gridViews, inventory.getGrid(), false);
-        refreshArray(toolbarViews, inventory.getToolbar(), true);
-        refreshArray(equipViews, inventory.getEquipment(), true);
+        refreshArray(gridViews, inventory.getGrid());
+        refreshArray(toolbarViews, inventory.getToolbar());
+        refreshArray(equipViews, inventory.getEquipment());
+        applyTrashVisual();
     }
 
-    private void refreshArray(SlotView[] views, Slot[] data, boolean showEmptyHints) {
+    private void refreshArray(SlotView[] views, Slot[] data) {
         for (int i = 0; i < views.length; i++) {
             SlotView v = views[i];
             if (v == null) continue;
-            Slot s = data[i];
-            applySlotVisual(v, s);
+            applySlotVisual(v, data[i]);
         }
     }
 
@@ -648,19 +795,60 @@ public class InventoryUI {
         boolean isHov = v == hovered && selected == null;
         boolean isDeny = v == denySlot && denyTimer > 0;
 
+        if (v.kind == SlotKind.EQUIPMENT) {
+            // Equipment slots always show their fixed type silhouette. Equipping an item
+            // tints the silhouette with that item's color instead of swapping to a letter.
+            v.icon.setCullHint(Spatial.CullHint.Always);
+            v.label.setText("");
+            v.count.setText("");
+            if (v.silhouette != null) {
+                v.silhouette.setCullHint(Spatial.CullHint.Never);
+                if (s.isEmpty()) {
+                    tintSilhouette(v.silhouette, DEFAULT_EQUIP_SIL_COLOR);
+                } else if (s.getItem() != null) {
+                    tintSilhouette(v.silhouette, s.getItem().iconColor);
+                }
+            }
+            applyBorderState(v, isSel, isHov, isDeny);
+            return;
+        }
+
         if (s.isEmpty()) {
             v.icon.setCullHint(Spatial.CullHint.Always);
+            if (v.silhouette != null) {
+                v.silhouette.setCullHint(Spatial.CullHint.Never);
+            }
             v.label.setText("");
             v.count.setText("");
         } else {
             Item item = s.getItem();
             v.icon.setCullHint(Spatial.CullHint.Never);
-            v.icon.getMaterial().setColor("Color", new ColorRGBA(item.iconColor.r, item.iconColor.g, item.iconColor.b, 1f));
-            v.label.setText(item.name.substring(0, 1));
-            v.count.setText(s.count > 1 ? "" + s.count : "");
+            if (v.silhouette != null) {
+                v.silhouette.setCullHint(Spatial.CullHint.Always);
+            }
+            if (item != null) {
+                v.icon.getMaterial().setColor("Color",
+                        new ColorRGBA(item.iconColor.r, item.iconColor.g, item.iconColor.b, 1f));
+                v.label.setText(item.name.substring(0, 1));
+                // BitmapText anchors top-left and draws downward; center the letter by
+                // offsetting up by half its line height (Bug 3).
+                float lh = v.label.getLineHeight();
+                v.label.setLocalTranslation(
+                        v.x + slot / 2f - v.label.getLineWidth() / 2f,
+                        v.y + slot / 2f + lh / 2f,
+                        0f);
+                // Count pinned to the bottom-right corner, using its own line height.
+                v.count.setText(s.count > 1 ? "" + s.count : "");
+                float ch = v.count.getLineHeight();
+                v.count.setLocalTranslation(v.x + slot - 3f * sx - v.count.getLineWidth(),
+                        v.y + ch / 2f + 2f * sy, 0f);
+            }
         }
 
-        // border highlight state
+        applyBorderState(v, isSel, isHov, isDeny);
+    }
+
+    private void applyBorderState(SlotView v, boolean isSel, boolean isHov, boolean isDeny) {
         if (isDeny) {
             v.border.getMaterial().setColor("Color", new ColorRGBA(0.85f, 0.25f, 0.25f, 1f));
         } else if (isSel) {
@@ -668,26 +856,63 @@ public class InventoryUI {
         } else if (isHov) {
             v.border.getMaterial().setColor("Color", new ColorRGBA(0.45f, 0.48f, 0.52f, 1f));
         } else {
-            v.border.getMaterial().setColor("Color", new ColorRGBA(0.22f, 0.24f, 0.26f, 1f));
+            v.border.getMaterial().setColor("Color", toolbarBorder(v.kind));
+        }
+    }
+
+    /** Tints every Geometry under the silhouette node (recursively). */
+    private void tintSilhouette(Node n, ColorRGBA col) {
+        for (Spatial child : n.getChildren()) {
+            if (child instanceof Geometry g) {
+                g.getMaterial().setColor("Color", col.clone());
+            } else if (child instanceof Node cn) {
+                tintSilhouette(cn, col);
+            }
+        }
+    }
+
+    private ColorRGBA toolbarBorder(SlotKind kind) {
+        if (kind == SlotKind.TOOLBAR) {
+            return new ColorRGBA(0.28f, 0.60f, 0.66f, 1f);
+        }
+        return new ColorRGBA(0.22f, 0.24f, 0.26f, 1f);
+    }
+
+    private void applyTrashVisual() {
+        if (trashView == null) return;
+        // trash-can silhouette always visible
+        if (trashView.silhouette != null) {
+            trashView.silhouette.setCullHint(Spatial.CullHint.Never);
+        }
+        boolean armed = trashArmTimer > 0;
+        boolean hov = trashView == hovered && selected == null;
+        if (armed) {
+            trashView.border.getMaterial().setColor("Color", new ColorRGBA(0.95f, 0.30f, 0.25f, 1f));
+        } else if (hov) {
+            trashView.border.getMaterial().setColor("Color", new ColorRGBA(0.62f, 0.30f, 0.28f, 1f));
+        } else {
+            trashView.border.getMaterial().setColor("Color", new ColorRGBA(0.34f, 0.16f, 0.16f, 1f));
         }
     }
 
     // ================= generic builders =================
 
-    private void panel(float x, float y, float w, float h, String title) {
-        // soft shadow
-        quadAttach(x + 3, y - 3, w, h, new ColorRGBA(0f, 0f, 0f, 0.4f));
-        // main translucent surface
-        quadAttach(x, y, w, h, new ColorRGBA(0.07f, 0.08f, 0.10f, 0.82f));
-        // thin border
-        float t = 1.5f;
-        quadAttach(x, y, w, t, new ColorRGBA(0.28f, 0.32f, 0.34f, 1f));
-        quadAttach(x, y + h - t, w, t, new ColorRGBA(0.28f, 0.32f, 0.34f, 1f));
-        quadAttach(x, y, t, h, new ColorRGBA(0.28f, 0.32f, 0.34f, 1f));
-        quadAttach(x + w - t, y, t, h, new ColorRGBA(0.28f, 0.32f, 0.34f, 1f));
-        // muted accent line under the title
-        quadAttach(x + 12f, y + h - 26f, w - 24f, 1.5f, new ColorRGBA(0.32f, 0.50f, 0.60f, 0.6f));
-        addText(hudNode, title, x + 14f, y + h - 24f, 15f, new ColorRGBA(0.6f, 0.68f, 0.72f, 1f));
+    private void roundedRect(float x, float y, float w, float h, float r, ColorRGBA color) {
+        float r2 = Math.max(0f, r);
+        quadAttach(x, y + r2, w, h - 2 * r2, color);
+        quadAttach(x + r2, y, w - 2 * r2, h, color);
+        for (int i = 0; i < 4; i++) {
+            float cx = (i == 0 || i == 3) ? x + r2 : x + w - r2;
+            float cy = (i < 2) ? y + h - r2 : y + r2;
+            quadAttach(cx, cy, r2, r2, color);
+        }
+    }
+
+    private void borderStroke(float x, float y, float w, float h, float t, ColorRGBA color) {
+        quadAttach(x, y, w, t, color);
+        quadAttach(x, y + h - t, w, t, color);
+        quadAttach(x, y, t, h, color);
+        quadAttach(x + w - t, y, t, h, color);
     }
 
     private Geometry quad(float x, float y, float w, float h, ColorRGBA color) {
