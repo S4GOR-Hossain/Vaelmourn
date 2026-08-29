@@ -52,5 +52,18 @@
             <artifactId>Minie</artifactId>
             <version>7.5.0</version>
         </dependency>
+
+        <!-- Lemur: jME3 UI toolkit (buttons, panels, text fields, containers, popups) -->
+        <dependency>
+            <groupId>com.simsilica</groupId>
+            <artifactId>lemur</artifactId>
+            <version>1.16.0</version>
+        </dependency>
+        <!-- lemur-proto: ready-made widget styles (Glass, Gotham) and proto widgets -->
+        <dependency>
+            <groupId>com.simsilica</groupId>
+            <artifactId>lemur-proto</artifactId>
+            <version>1.13.0</version>
+        </dependency>
     </dependencies>
 </project>

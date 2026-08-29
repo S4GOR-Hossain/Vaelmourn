@@ -2,8 +2,13 @@ package com.vaelmourn;
 
 import com.jme3.anim.AnimComposer;
 import com.jme3.math.FastMath;
+import com.jme3.math.Ray;
+import com.jme3.math.Vector3f;
 import com.jme3.renderer.Camera;
 import com.jme3.scene.Node;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class CombatController {
 
@@ -13,6 +18,8 @@ public class CombatController {
     private final Weapons weapons;
 
     private Weapons.WeaponInstance equipped;
+
+    private final List<EnemyController> enemies = new ArrayList<>();
 
     private boolean adsHeld = false;
     private boolean blockHeld = false;
@@ -48,6 +55,12 @@ public class CombatController {
 
     public Weapons.WeaponInstance getEquipped() {
         return equipped;
+    }
+
+    /** Feed the currently active enemy list in so attacks can hit them. */
+    public void setEnemies(List<EnemyController> enemies) {
+        this.enemies.clear();
+        if (enemies != null) this.enemies.addAll(enemies);
     }
 
     public boolean isBlocking() {
@@ -145,8 +158,8 @@ public class CombatController {
     // ---------------- actions ----------------
 
     private void doMeleeLight() {
-        // TODO: add hit detection cone/sphere in front of player
-        // damage = equipped.def.damage
+        // Cone sweep in front of the player (arc degrees wide, weapon range deep).
+        applyMeleeArc(equipped.def.damage, equipped.def.range, 90f);
         playAnimSafe("Attack_Light");
         equipped.triggerCooldown();
     }
@@ -154,24 +167,69 @@ public class CombatController {
     private void doMeleeHeavy() {
         float chargeScale = FastMath.clamp(1f + heavyChargeTime, 1f, 2f);
         float finalDamage = equipped.def.damage * equipped.def.heavyMultiplier * chargeScale;
-
-        // TODO: add heavier hit detection; apply finalDamage
+        applyMeleeArc(finalDamage, equipped.def.range * 1.2f, 160f);
         playAnimSafe("Attack_Heavy");
         equipped.triggerCooldown();
     }
 
     private void doRangedFire() {
-        // TODO: spawn projectile or do hitscan ray from camera
-        // damage = equipped.def.damage
-        // speed = equipped.def.projectileSpeed
+        // Hitscan: the first enemy close to the camera ray takes damage.
+        Ray ray = new Ray(cam.getLocation(), cam.getDirection());
+        float best = Float.MAX_VALUE;
+        EnemyController target = null;
+        for (EnemyController e : enemies) {
+            if (e.isDead()) continue;
+            Vector3f rel = e.getPosition().subtract(ray.origin);
+            float t = rel.dot(ray.direction);
+            if (t < 0f || t > equipped.def.range) continue;
+            Vector3f proj = ray.origin.add(ray.direction.mult(t));
+            if (proj.distance(e.getPosition()) < 0.7f && t < best) {
+                best = t;
+                target = e;
+            }
+        }
+        if (target != null) {
+            target.takeDamage(equipped.def.damage);
+        }
         playAnimSafe("Shoot");
         equipped.triggerCooldown();
     }
 
     private void doShieldPush() {
-        // TODO: short-range knockback in front of player using equipped.def.pushForce
+        // Short-range knockback/push in front of the player.
+        Vector3f forward = cam.getDirection().normalizeLocal();
+        for (EnemyController e : enemies) {
+            if (e.isDead()) continue;
+            Vector3f to = e.getPosition().subtract(playerNode.getWorldTranslation());
+            to.y = 0f;
+            if (to.length() > equipped.def.range + 0.5f) continue;
+            if (forward.dot(to.normalizeLocal()) > 0.5f) {
+                e.takeDamage(equipped.def.damage);
+            }
+        }
         playAnimSafe("Shield_Push");
         equipped.triggerCooldown();
+    }
+
+    /** Damages every living enemy inside a horizontal cone (arcDeg wide, reach deep). */
+    private void applyMeleeArc(float damage, float reach, float arcDeg) {
+        if (enemies.isEmpty()) return;
+        Vector3f origin = playerNode.getWorldTranslation();
+        Vector3f forward = cam.getDirection();
+        Vector3f dir = new Vector3f(forward.x, 0f, forward.z).normalizeLocal();
+        float arcHalf = (arcDeg * FastMath.DEG_TO_RAD) / 2f;
+        for (EnemyController e : enemies) {
+            if (e.isDead()) continue;
+            Vector3f to = e.getPosition().subtract(origin);
+            to.y = 0f;
+            float dist = to.length();
+            if (dist > reach + 0.5f) continue; // + small enemy radius slack
+            Vector3f n = to.normalizeLocal();
+            float dot = FastMath.clamp(dir.dot(n), -1f, 1f);
+            if (FastMath.acos(dot) <= arcHalf) {
+                e.takeDamage(damage);
+            }
+        }
     }
 
     private void playAnimSafe(String clip) {

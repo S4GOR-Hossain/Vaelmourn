@@ -1,6 +1,9 @@
 package com.vaelmourn;
 
+import com.simsilica.lemur.GuiGlobals;
+import com.simsilica.lemur.style.BaseStyles;
 import com.jme3.anim.AnimComposer;
+import com.jme3.anim.SkinningControl;
 import com.jme3.app.SimpleApplication;
 import com.jme3.app.DebugKeysAppState;
 import com.jme3.app.StatsAppState;
@@ -23,6 +26,8 @@ import com.jme3.input.controls.MouseButtonTrigger;
 import com.jme3.light.AmbientLight;
 import com.jme3.light.DirectionalLight;
 import com.jme3.light.LightProbe;
+import com.jme3.font.BitmapFont;
+import com.jme3.font.BitmapText;
 import com.jme3.material.Material;
 import com.jme3.math.ColorRGBA;
 import com.jme3.math.FastMath;
@@ -32,6 +37,7 @@ import com.jme3.scene.Geometry;
 import com.jme3.scene.Node;
 import com.jme3.scene.Spatial;
 import com.jme3.scene.VertexBuffer;
+import com.jme3.scene.shape.Quad;
 import com.jme3.system.AppSettings;
 import com.jme3.texture.Texture;
 import com.jme3.texture.Texture2D;
@@ -58,7 +64,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
     private boolean left, right, forward, backward;
     private final Vector3f walkDirection = new Vector3f();
-    private final float MOVE_SPEED = 6f;
+    private final float MOVE_SPEED = 10f;
 
     // --- Dodge state ---
     private boolean dodging = false;
@@ -102,6 +108,18 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     private PlayerStats playerStats;
     private InventoryUI inventoryUI;
     private boolean inventoryOpen = false;
+
+    // --- Stage / roguelike system ---
+    private StageManager stageManager;
+
+    // --- Persistent gameplay HUD (health bar + enemies remaining, bottom-left) ---
+    private Node hudNode;
+    private Geometry hudHpFill;
+    private BitmapText hudHpText;
+    private BitmapText hudEnemiesText;
+    private float hudSx = 1f;
+    private float hudSy = 1f;
+    private static final float HUD_HP_FULL_WIDTH = 252f; // inner fill width at 1080p
 
     private Node forestZoneNode;
 
@@ -164,6 +182,18 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
         viewPort.setBackgroundColor(new ColorRGBA(0.45f, 0.65f, 0.82f, 1f));
 
+        // Initialize Lemur (jME3 UI toolkit) so GUI widgets can be created anywhere.
+        // GuiGlobals.initialize(this) must be called once, before building any Lemur UI.
+        GuiGlobals.initialize(this);
+        // The Glass theme is loaded from a Groovy stylesheet. On JDKs newer than what the
+        // bundled Groovy supports this throws, so guard it to never break startup. The game's
+        // HUD is jME3-native (not Lemur), so a missing Glass theme has no functional impact.
+        try {
+            BaseStyles.loadGlassStyle(); // dark translucent "Glass" look (sci-fi default)
+        } catch (Throwable t) {
+            System.err.println("Lemur Glass style unavailable: " + t);
+        }
+
         bulletAppState = new BulletAppState();
         stateManager.attach(bulletAppState);
 
@@ -172,31 +202,16 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         stateManager.detach(stateManager.getState(StatsAppState.class));
         stateManager.detach(stateManager.getState(DebugKeysAppState.class));
 
-        forestZoneNode = new Node("ForestZone");
-        rootNode.attachChild(forestZoneNode);
-
-        buildSky();
-        buildGroundPlane(80f);
-        buildBoundaryWalls(80f);
-        buildForest();
-
-        // Lighting
-        DirectionalLight sun = new DirectionalLight();
-        sun.setDirection(new Vector3f(-0.5f, -1f, -0.5f).normalizeLocal());
-        sun.setColor(ColorRGBA.White.mult(1.2f));
-        rootNode.addLight(sun);
-
-        DirectionalLight fill = new DirectionalLight();
-        fill.setDirection(new Vector3f(0.5f, -0.5f, 0.5f).normalizeLocal());
-        fill.setColor(ColorRGBA.White.mult(0.5f));
-        rootNode.addLight(fill);
-
-        AmbientLight ambient = new AmbientLight();
-        ambient.setColor(ColorRGBA.White.mult(0.8f));
-        rootNode.addLight(ambient);
+        // The world geometry, lighting and atmosphere now come from the Stage system,
+        // which is initialized after the player and PlayerStats are created (below)
+        // because loadInitialStage() warps the player and needs those to exist.
 
         // Player
         Spatial playerModel = assetManager.loadModel("Models/Characters/Player/player.gltf");
+
+        // GPU (hardware) skinning of the skinned model crashes this AMD OpenGL driver
+        // (EXCEPTION_ACCESS_VIOLATION in glBufferData). Force CPU skinning instead.
+        disableHardwareSkinning(playerModel);
 
         playerNode = new Node("Player");
         playerNode.attachChild(playerModel);
@@ -277,10 +292,22 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         playerStats.addSoulDust(250);
         playerStats.addExperience(40f);
 
+        // ---- Stage / roguelike system ----
+        stageManager = new StageManager(assetManager, rootNode, bulletAppState, this);
+        stageManager.setPlayerStats(playerStats);
+        stageManager.addStage(new SanctuaryStage());
+        stageManager.addStage(new DarkwoodStage());
+        stageManager.addStage(new AshenWastesStage());
+        stageManager.addStage(new FrozenDepthsStage());
+        stageManager.loadInitialStage(playerControl);
+        combat.setEnemies(stageManager.getActiveEnemies());
+
         inventoryUI = new InventoryUI(assetManager, renderManager, inputManager, cam,
                 inventory, playerStats, playerModel,
                 settings.getWidth(), settings.getHeight());
         guiNode.attachChild(inventoryUI.getNode());
+
+        buildHUD(settings.getWidth(), settings.getHeight());
 
         initKeys();
 
@@ -294,8 +321,12 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
         inputManager.addListener(analogListener, "MouseX+", "MouseX-", "MouseY+", "MouseY-");
 
-        envCam = new EnvironmentCamera();
-        stateManager.attach(envCam);
+        // The EnvironmentCamera / light-probe baking re-renders the whole scene into an
+        // environment map every frame, which crashes the native AMD OpenGL driver
+        // (EXCEPTION_ACCESS_VIOLATION in glBufferData). Lighting now comes from the Stage
+        // system, so the probe is unnecessary -- leave it unattached to stay safe.
+        // envCam = new EnvironmentCamera();
+        // stateManager.attach(envCam);
     }
 
     private String findClipContaining(String... keywords) {
@@ -593,6 +624,26 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         }
     }
 
+    /**
+     * Disables GPU (hardware) skinning on every skinned mesh in the given spatial tree.
+     * Hardware skinning crashes this AMD OpenGL driver (EXCEPTION_ACCESS_VIOLATION in
+     * glBufferData when uploading the animated vertex data), so we force CPU skinning.
+     */
+    private void disableHardwareSkinning(Spatial spatial) {
+        if (spatial == null) return;
+
+        SkinningControl skinning = spatial.getControl(SkinningControl.class);
+        if (skinning != null) {
+            skinning.setHardwareSkinningPreferred(false);
+        }
+
+        if (spatial instanceof Node) {
+            for (Spatial child : ((Node) spatial).getChildren()) {
+                disableHardwareSkinning(child);
+            }
+        }
+    }
+
     private AnimComposer findAnimComposer(Spatial spatial) {
         AnimComposer composer = spatial.getControl(AnimComposer.class);
         if (composer != null) return composer;
@@ -744,14 +795,21 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             return;
         }
 
-        if (!lightProbeBaked && envCam.getApplication() != null) {
+        if (!lightProbeBaked && envCam != null && envCam.getApplication() != null) {
             bakeLightProbe();
             lightProbeBaked = true;
         }
 
+        // ---- Stage / roguelike system: update AI, portals, transitions ----
+        if (stageManager != null) {
+            stageManager.update(tpf, playerNode.getWorldTranslation(), playerControl);
+        }
         if (combat != null) {
+            combat.setEnemies(stageManager != null ? stageManager.getActiveEnemies() : null);
             combat.update(tpf);
         }
+
+        updateHUD();
 
         if (dodgeCooldown > 0f) {
             dodgeCooldown -= tpf;
@@ -821,5 +879,85 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
         cam.setLocation(playerPos.add(offset).add(0, 1.5f, 0));
         cam.lookAt(playerPos.add(0, 1.5f, 0), Vector3f.UNIT_Y);
+    }
+
+    // =================== persistent gameplay HUD ===================
+
+    private Geometry makeHudQuad(float x, float y, float w, float h, ColorRGBA color) {
+        Geometry g = new Geometry("HudQuad", new Quad(w, h));
+        Material m = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
+        m.setColor("Color", color);
+        g.setMaterial(m);
+        g.setLocalTranslation(x, y, 0);
+        hudNode.attachChild(g);
+        return g;
+    }
+
+    private void buildHUD(int screenW, int screenH) {
+        hudNode = new Node("HUD");
+        hudSx = screenW / 1920f;
+        hudSy = screenH / 1080f;
+
+        float margin = 20f * hudSx;
+        float barW = 260f * hudSx;
+        float barH = 24f * hudSy;
+        float inset = 4f * hudSx;
+        float fillX = margin + inset;
+        float fillY = 20f * hudSy + inset;
+
+        // dark frame/background bar
+        makeHudQuad(margin, 20f * hudSy, barW, barH, new ColorRGBA(0.08f, 0.08f, 0.10f, 0.85f));
+        // health fill (green), width scaled per-frame in updateHUD
+        hudHpFill = makeHudQuad(fillX, fillY, HUD_HP_FULL_WIDTH * hudSx, 16f * hudSy,
+                new ColorRGBA(0.2f, 0.85f, 0.25f, 1f));
+
+        BitmapFont font = assetManager.loadFont("Interface/Fonts/Default.fnt");
+
+        hudHpText = new BitmapText(font, false);
+        hudHpText.setSize(14f * hudSy);
+        hudHpText.setColor(ColorRGBA.White);
+        hudHpText.setText("100 / 100");
+        hudHpText.setLocalTranslation(fillX + 4f * hudSx, fillY + 1f * hudSy, 0);
+        hudNode.attachChild(hudHpText);
+
+        // enemies remaining indicator below the bar
+        hudEnemiesText = new BitmapText(font, false);
+        hudEnemiesText.setSize(16f * hudSy);
+        hudEnemiesText.setColor(new ColorRGBA(0.9f, 0.9f, 0.95f, 1f));
+        hudEnemiesText.setText("Enemies: 0");
+        hudEnemiesText.setLocalTranslation(margin, (20f * hudSy + barH + 8f * hudSy), 0);
+        hudNode.attachChild(hudEnemiesText);
+
+        guiNode.attachChild(hudNode);
+        updateHUD();
+    }
+
+    private void updateHUD() {
+        if (hudHpFill == null || playerStats == null) return;
+
+        float maxHp = Math.max(1f, playerStats.getMaxHealth());
+        float ratio = Math.max(0f, Math.min(1f, playerStats.getHealth() / maxHp));
+
+        // tint fill green -> yellow -> red as health drops
+        ColorRGBA fillColor;
+        if (ratio > 0.5f) {
+            fillColor = new ColorRGBA(0.2f, 0.85f, 0.25f, 1f);
+        } else if (ratio > 0.25f) {
+            fillColor = new ColorRGBA(0.9f, 0.8f, 0.15f, 1f);
+        } else {
+            fillColor = new ColorRGBA(0.9f, 0.2f, 0.15f, 1f);
+        }
+        hudHpFill.getMaterial().setColor("Color", fillColor);
+        hudHpFill.setLocalScale(ratio, 1f, 1f);
+        hudHpText.setText((int) playerStats.getHealth() + " / " + (int) maxHp);
+
+        int remaining = (stageManager != null && stageManager.getActiveEnemies() != null)
+                ? stageManager.getActiveEnemies().size() : 0;
+        if (remaining > 0) {
+            String stageName = stageManager != null ? stageManager.getCurrentStageName() : "?";
+            hudEnemiesText.setText(stageName + "  |  Enemies: " + remaining);
+        } else {
+            hudEnemiesText.setText("Enemies: 0");
+        }
     }
 }
