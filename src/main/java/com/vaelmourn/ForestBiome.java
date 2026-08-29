@@ -64,7 +64,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
     private boolean left, right, forward, backward;
     private final Vector3f walkDirection = new Vector3f();
-    private final float MOVE_SPEED = 10f;
+    private final float MOVE_SPEED = 12f;
 
     // --- Dodge state ---
     private boolean dodging = false;
@@ -88,7 +88,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     private String fallClipName = null;
 
     // --- Gravity shaping ---
-    private final float BASE_GRAVITY = 30f;
+    private final float BASE_GRAVITY = 25f;
     private final float FALL_GRAVITY_MULTIPLIER = 2.5f;
     private final float RISE_GRAVITY_MULTIPLIER = 1.1f;
 
@@ -299,6 +299,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         stageManager.addStage(new DarkwoodStage());
         stageManager.addStage(new AshenWastesStage());
         stageManager.addStage(new FrozenDepthsStage());
+        stageManager.addStage(new JungleStage());
         stageManager.loadInitialStage(playerControl);
         combat.setEnemies(stageManager.getActiveEnemies());
 

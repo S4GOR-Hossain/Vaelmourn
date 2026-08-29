@@ -120,7 +120,7 @@ public class StageManager {
 
         // Update enemies
         for (EnemyController enemy : activeEnemies) {
-            enemy.update(tpf, playerPos);
+            enemy.update(tpf, playerPos, playerStats);
         }
 
         // Remove dead enemies

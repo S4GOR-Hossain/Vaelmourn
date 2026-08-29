@@ -1,17 +1,27 @@
 package com.vaelmourn;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+
 import com.jme3.anim.AnimComposer;
 import com.jme3.asset.AssetManager;
 import com.jme3.bullet.BulletAppState;
 import com.jme3.bullet.control.BetterCharacterControl;
+import com.jme3.effect.ParticleEmitter;
+import com.jme3.effect.ParticleMesh;
 import com.jme3.material.Material;
+import com.jme3.texture.Image;
+import com.jme3.texture.Texture;
+import com.jme3.texture.Texture2D;
 import com.jme3.math.ColorRGBA;
 import com.jme3.math.FastMath;
 import com.jme3.math.Vector3f;
 import com.jme3.scene.Geometry;
 import com.jme3.scene.Node;
 import com.jme3.scene.Spatial;
+import com.jme3.scene.control.BillboardControl;
 import com.jme3.scene.shape.Cylinder;
+import com.jme3.scene.shape.Quad;
 
 /**
  * EnemyController manages a single enemy entity: AI, health, combat, death.
@@ -38,9 +48,24 @@ public class EnemyController {
 
     private int tier; // 1=easy (green), 2=medium (orange), 3=hard (red)
 
+    // Stored context for spawning in-world effects.
+    private final AssetManager assetManager;
+    private final Node parentNode;
+
+    // Small health bar above the enemy (world-space, billboarded toward the camera).
+    private Geometry healthBarFill;
+    private float healthBarBaseWidth = 1.2f;
+
+    // Short-lived hit particle burst.
+    private final ParticleEmitter hitEmitter;
+    private float emitterTimer = 0f;
+    private static final float EMITTER_LIFETIME = 0.35f;
+
     public EnemyController(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState,
                           Vector3f spawnPos, int tier, int loopCount) {
         this.tier = tier;
+        this.assetManager = assetManager;
+        this.parentNode = parentNode;
 
         // Base stats per tier
         float baseHealth = switch(tier) {
@@ -78,8 +103,59 @@ public class EnemyController {
         Material mat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
         mat.setColor("Color", color);
         capsule.setMaterial(mat);
+        // jME3's Cylinder runs its height along the Z axis, so it lies flat by
+        // default. Rotate 90 degrees about X to stand the capsule upright, matching
+        // the physics capsule's vertical orientation.
+        capsule.rotate(FastMath.HALF_PI, 0f, 0f);
         node.attachChild(capsule);
         this.originalMaterial = mat;
+
+        // Small health bar floating above the capsule, billboarded toward the camera.
+        Node healthBarNode = new Node("HealthBar");
+        healthBarNode.setLocalTranslation(0f, 2.0f, 0f);
+        healthBarNode.addControl(new BillboardControl());
+
+        Geometry bg = new Geometry("HPBarBG", new Quad(healthBarBaseWidth, 0.16f));
+        Material bgMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
+        bgMat.setColor("Color", new ColorRGBA(0.05f, 0.05f, 0.06f, 0.9f));
+        bg.setMaterial(bgMat);
+        bg.setLocalTranslation(-healthBarBaseWidth / 2f, -0.08f, 0f);
+        healthBarNode.attachChild(bg);
+
+        healthBarFill = new Geometry("HPBarFill", new Quad(healthBarBaseWidth, 0.12f));
+        Material fillMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
+        fillMat.setColor("Color", ColorRGBA.Red);
+        healthBarFill.setMaterial(fillMat);
+        healthBarFill.setLocalTranslation(-healthBarBaseWidth / 2f, -0.06f, 0.01f);
+        healthBarNode.attachChild(healthBarFill);
+
+        node.attachChild(healthBarNode);
+
+        // Hit particle burst, spawned at the enemy's position when damaged.
+        // Uses a procedurally generated soft glow texture so no external asset is required.
+        hitEmitter = new ParticleEmitter("HitSpark", ParticleMesh.Type.Triangle, 24);
+        Material pm = new Material(assetManager, "Common/MatDefs/Misc/Particle.j3md");
+        Texture2D glowTex = null;
+        try {
+            glowTex = makeSoftGlowTexture();
+        } catch (RuntimeException ex) {
+            System.err.println("EnemyController: could not build glow texture, particles untextured: " + ex.getMessage());
+        }
+        if (glowTex != null) {
+            pm.setTexture("Texture", glowTex);
+        }
+        hitEmitter.setMaterial(pm);
+        hitEmitter.setStartColor(ColorRGBA.White);
+        hitEmitter.setEndColor(new ColorRGBA(1f, 0.6f, 0.1f, 1f));
+        hitEmitter.setStartSize(0.25f);
+        hitEmitter.setEndSize(0.05f);
+        hitEmitter.setGravity(0f, 8f, 0f);
+        hitEmitter.setLowLife(0.15f);
+        hitEmitter.setHighLife(0.35f);
+        hitEmitter.setParticlesPerSec(0f);
+        hitEmitter.setLocalTranslation(spawnPos.add(0f, 0.7f, 0f));
+        hitEmitter.setEnabled(false);
+        parentNode.attachChild(hitEmitter);
 
         node.setLocalTranslation(spawnPos);
         parentNode.attachChild(node);
@@ -98,7 +174,7 @@ public class EnemyController {
     /**
      * Update AI and movement each frame.
      */
-    public void update(float tpf, Vector3f playerPos) {
+    public void update(float tpf, Vector3f playerPos, PlayerStats playerStats) {
         if (dead) {
             deathTimer -= tpf;
             return;
@@ -108,6 +184,21 @@ public class EnemyController {
 
         if (damageFlashTimer > 0f) {
             damageFlashTimer -= tpf;
+        }
+
+        // Keep the floating health bar in sync with current health.
+        if (healthBarFill != null) {
+            float ratio = maxHealth <= 0f ? 0f : FastMath.clamp(health / maxHealth, 0f, 1f);
+            healthBarFill.setLocalScale(ratio, 1f, 1f);
+        }
+
+        // Short-lived hit particle burst: kill it once its lifetime elapses.
+        if (emitterTimer > 0f) {
+            emitterTimer -= tpf;
+            if (emitterTimer <= 0f) {
+                hitEmitter.killAllParticles();
+                hitEmitter.setEnabled(false);
+            }
         }
 
         Vector3f enemyPos = node.getWorldTranslation();
@@ -121,9 +212,12 @@ public class EnemyController {
                 // In attack range — stop and attack
                 physics.setWalkDirection(Vector3f.ZERO);
                 if (timeSinceLastAttack >= attackCooldown) {
-                    // Attack happens; damage applied by ForestBiome callback
                     timeSinceLastAttack = 0f;
                     playAnim("Attack");
+                    // Apply a small amount of damage to the player.
+                    if (playerStats != null) {
+                        playerStats.damage(damage);
+                    }
                 }
             } else {
                 // Move toward player
@@ -150,6 +244,12 @@ public class EnemyController {
             originalMaterial.setColor("Color", ColorRGBA.Red);
         }
 
+        // Small particle burst at the hit point.
+        hitEmitter.setLocalTranslation(node.getWorldTranslation().add(0f, 0.7f, 0f));
+        hitEmitter.setEnabled(true);
+        hitEmitter.emitAllParticles();
+        emitterTimer = EMITTER_LIFETIME;
+
         if (health <= 0f) {
             die();
         }
@@ -170,6 +270,7 @@ public class EnemyController {
      */
     public void cleanup(BulletAppState bulletAppState) {
         bulletAppState.getPhysicsSpace().remove(physics);
+        hitEmitter.removeFromParent();
         node.removeFromParent();
     }
 
@@ -191,6 +292,37 @@ public class EnemyController {
             }
         }
         return null;
+    }
+
+    /**
+     * Builds a small soft circular white glow texture in code, so the hit
+     * particle effect needs no external asset file (which would throw on load).
+     */
+    private static Texture2D makeSoftGlowTexture() {
+        int size = 64;
+        int center = size / 2;
+        ByteBuffer data = ByteBuffer.allocateDirect(size * size * 4)
+                .order(ByteOrder.nativeOrder());
+        for (int y = 0; y < size; y++) {
+            for (int x = 0; x < size; x++) {
+                float dx = (x - center) / (float) center;
+                float dy = (y - center) / (float) center;
+                float dist = FastMath.sqrt(dx * dx + dy * dy);
+                float alpha = FastMath.clamp(1f - dist, 0f, 1f);
+                alpha = alpha * alpha; // sharpen the falloff into a soft glow
+                data.put((byte) 255);
+                data.put((byte) 255);
+                data.put((byte) 255);
+                data.put((byte) (int) (alpha * 255f));
+            }
+        }
+        data.flip();
+        Image image = new Image(Image.Format.RGBA8, size, size, data);
+        Texture2D texture = new Texture2D(image);
+        texture.setWrap(Texture.WrapMode.Clamp);
+        texture.setMinFilter(Texture.MinFilter.BilinearNoMipMaps);
+        texture.setMagFilter(Texture.MagFilter.Bilinear);
+        return texture;
     }
 
     // Getters
