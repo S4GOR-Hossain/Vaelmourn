@@ -41,6 +41,11 @@ public class EnemyController {
     private float attackCooldown = 1.5f;
     private float timeSinceLastAttack = 0f;
 
+    // Knockback impulse applied by player attacks; fades out over time.
+    private final Vector3f knockback = new Vector3f();
+    private static final float KNOCKBACK_TIME = 0.35f;   // how long a push lasts
+    private float knockbackTimer = 0f;
+
     private boolean dead = false;
     private float deathTimer = 0f;
     private Material originalMaterial;
@@ -69,10 +74,10 @@ public class EnemyController {
 
         // Base stats per tier
         float baseHealth = switch(tier) {
-            case 1 -> 8f;
-            case 2 -> 20f;
-            case 3 -> 40f;
-            default -> 10f;
+            case 1 -> 55f;
+            case 2 -> 115f;
+            case 3 -> 180f;
+            default -> 60f;
         };
 
         float baseDamage = switch(tier) {
@@ -204,13 +209,18 @@ public class EnemyController {
         Vector3f enemyPos = node.getWorldTranslation();
         float distToPlayer = enemyPos.distance(playerPos);
 
+        // While a knockback is active, dampen the AI's own movement so the push
+        // isn't instantly cancelled by the enemy walking back toward the player.
+        float kbMag = knockback.length();
+        float kbLinger = FastMath.clamp(knockbackTimer / KNOCKBACK_TIME, 0f, 1f);
+
+        Vector3f desiredMove = Vector3f.ZERO;
         if (distToPlayer < detectionRange) {
             // Move toward player
             Vector3f direction = playerPos.subtract(enemyPos).normalizeLocal();
 
             if (distToPlayer < attackRange) {
                 // In attack range — stop and attack
-                physics.setWalkDirection(Vector3f.ZERO);
                 if (timeSinceLastAttack >= attackCooldown) {
                     timeSinceLastAttack = 0f;
                     playAnim("Attack");
@@ -220,14 +230,24 @@ public class EnemyController {
                     }
                 }
             } else {
-                // Move toward player
-                physics.setWalkDirection(direction.mult(moveSpeed));
+                // Move toward player (scaled down while being knocked back).
+                desiredMove = direction.mult(moveSpeed * (1f - kbLinger * 0.85f));
                 playAnim("Walk");
             }
         } else {
             // Idle
-            physics.setWalkDirection(Vector3f.ZERO);
             playAnim("Idle");
+        }
+
+        physics.setWalkDirection(desiredMove.add(knockback));
+
+        // Decay the knockback over time (horizontal + vertical).
+        if (kbMag > 0f) {
+            knockbackTimer -= tpf;
+            float scale = FastMath.clamp(knockbackTimer / KNOCKBACK_TIME, 0f, 1f);
+            knockback.multLocal(scale);
+            // Kill tiny leftover values.
+            if (knockback.lengthSquared() < 0.05f) knockback.set(0f, 0f, 0f);
         }
     }
 
@@ -253,6 +273,24 @@ public class EnemyController {
         if (health <= 0f) {
             die();
         }
+    }
+
+    /**
+     * Applies a knockback impulse directed away from the attacker (horizontal X/Z)
+     * plus a small vertical hop so the hit is visually readable. The impulse fades
+     * out over a short time (see {@link #KNOCKBACK_TIME}).
+     *
+     * @param awayDir normalized horizontal direction pushing the enemy away
+     * @param force   magnitude of the push
+     */
+    public void applyKnockback(Vector3f awayDir, float force) {
+        if (dead) return;
+        knockback.set(awayDir.x * force, force * 0.5f, awayDir.z * force);
+        knockbackTimer = KNOCKBACK_TIME;
+    }
+
+    public void applyKnockback(Vector3f awayDir) {
+        applyKnockback(awayDir, 7f);
     }
 
     private void die() {

@@ -53,6 +53,8 @@ import java.awt.GraphicsEnvironment;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.util.Random;
+import java.util.ArrayList;
+import java.util.List;
 
 public class ForestBiome extends SimpleApplication implements ActionListener {
 
@@ -125,6 +127,14 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
     private EnvironmentCamera envCam;
     private boolean lightProbeBaked = false;
+
+    // --- Interactables (chests, NPCs) ---
+    private List<Interactable> interactables = new ArrayList<>();
+    private List<RigidBodyControl> interactablePhysics = new ArrayList<>();
+    private boolean interactablesBuilt = false;
+    private ShopUI shopUI;
+    private ChestUI chestUI;
+    private static final float INTERACT_RANGE = 3.5f;
 
     private final AnalogListener analogListener = (name, value, tpf) -> {
         if (inventoryOpen) return; // don't orbit the camera while browsing
@@ -302,6 +312,16 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         stageManager.addStage(new JungleStage());
         stageManager.loadInitialStage(playerControl);
         combat.setEnemies(stageManager.getActiveEnemies());
+
+        // Shop and Chest UIs must be created BEFORE the interactables reference them,
+        // otherwise pressing F near a chest/NPC does nothing (their handlers are null).
+        shopUI = new ShopUI(assetManager, renderManager, inputManager, cam, guiNode,
+                inventory, playerStats, settings.getWidth(), settings.getHeight());
+        chestUI = new ChestUI(assetManager, renderManager, inputManager, cam, guiNode,
+                inventory, settings.getWidth(), settings.getHeight());
+
+        // Spawn chests and NPCs in the Sanctuary (starting stage)
+        spawnChestsAndNPCs();
 
         inventoryUI = new InventoryUI(assetManager, renderManager, inputManager, cam,
                 inventory, playerStats, playerModel,
@@ -681,6 +701,9 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         // Inventory toggle
         inputManager.addMapping("Inventory", new KeyTrigger(KeyInput.KEY_E));
 
+        // Interact with NPCs/Chests
+        inputManager.addMapping("Interact", new KeyTrigger(KeyInput.KEY_F));
+
         // Combat mouse buttons
         inputManager.addMapping("AttackPrimary", new MouseButtonTrigger(MouseInput.BUTTON_LEFT));
         inputManager.addMapping("AttackSecondary", new MouseButtonTrigger(MouseInput.BUTTON_RIGHT));
@@ -690,7 +713,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                 "Left", "Right", "Forward", "Backward",
                 "Jump", "Dodge", "Crouch",
                 "AttackPrimary", "AttackSecondary",
-                "Inventory"
+                "Inventory", "Interact"
         );
     }
 
@@ -701,6 +724,10 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                 if (isPressed) toggleInventory();
                 return;
 
+            case "Interact":
+                if (isPressed) handleInteract();
+                return;
+
             case "Left":
             case "Right":
             case "Forward":
@@ -709,17 +736,17 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             case "Dodge":
             case "Crouch":
             case "AttackPrimary":
-                // When the inventory is open, route the click to the UI
-                // (select / drag-drop) instead of the gameplay combat.
-                if (inventoryOpen) {
-                    if (isPressed && inventoryUI != null) inventoryUI.handlePrimaryClick();
+                // When any UI is open, route the click to that UI (inventory select /
+                // drag-drop) instead of the gameplay combat.
+                if (isUiOpen()) {
+                    if (isPressed && inventoryOpen && inventoryUI != null) inventoryUI.handlePrimaryClick();
                     return;
                 }
                 break;
 
             case "AttackSecondary":
-                // Ignore gameplay input while the inventory is open.
-                if (inventoryOpen) return;
+                // Ignore gameplay input while any UI is open.
+                if (isUiOpen()) return;
                 break;
         }
 
@@ -762,6 +789,17 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         }
     }
 
+    /**
+     * True if any UI overlay is open (inventory, NPC shop, or chest),
+     * in which case the game world should be paused and gameplay input ignored.
+     */
+    private boolean isUiOpen() {
+        if (inventoryOpen) return true;
+        if (chestUI != null && chestUI.isOpen()) return true;
+        if (shopUI != null && shopUI.isOpen()) return true;
+        return false;
+    }
+
     private void toggleInventory() {
         inventoryOpen = !inventoryOpen;
         inventoryUI.setVisible(inventoryOpen);
@@ -791,8 +829,8 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             inventoryUI.update(tpf, cam);
         }
 
-        // While the inventory is open the game world is paused.
-        if (inventoryOpen) {
+        // While any UI (inventory, shop, chest) is open the game world is paused.
+        if (isUiOpen()) {
             return;
         }
 
@@ -809,6 +847,10 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             combat.setEnemies(stageManager != null ? stageManager.getActiveEnemies() : null);
             combat.update(tpf);
         }
+
+        // Chests and NPCs only exist in the Sanctuary: rebuild when we enter it,
+        // and clean them up (plus their physics) when we leave to another biome.
+        updateSanctuaryInteractables();
 
         updateHUD();
 
@@ -959,6 +1001,107 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             hudEnemiesText.setText(stageName + "  |  Enemies: " + remaining);
         } else {
             hudEnemiesText.setText("Enemies: 0");
+        }
+    }
+
+    /**
+     * Spawn chests and NPCs in the Sanctuary/Forest biome.
+     */
+    private void spawnChestsAndNPCs() {
+        // Create 3 chests at different locations
+        Chest chest1 = new Chest(new Vector3f(10f, 1f, -15f));
+        chest1.build(assetManager, rootNode, bulletAppState);
+        chest1.addLoot("health_potion", 3);
+        chest1.addLoot("mana_potion", 2);
+        chest1.addLoot("iron_ingot", 5);
+        chest1.setChestUI(chestUI);
+        interactables.add(chest1);
+        interactablePhysics.add(chest1.getPhysics());
+
+        Chest chest2 = new Chest(new Vector3f(-20f, 1f, 10f));
+        chest2.build(assetManager, rootNode, bulletAppState);
+        chest2.addLoot("leather", 8);
+        chest2.addLoot("dungeon_key", 1);
+        chest2.addLoot("health_potion", 2);
+        chest2.setChestUI(chestUI);
+        interactables.add(chest2);
+        interactablePhysics.add(chest2.getPhysics());
+
+        Chest chest3 = new Chest(new Vector3f(5f, 1f, 25f));
+        chest3.build(assetManager, rootNode, bulletAppState);
+        chest3.addLoot("iron_sword", 1);
+        chest3.addLoot("iron_ingot", 10);
+        chest3.addLoot("mana_potion", 4);
+        chest3.setChestUI(chestUI);
+        interactables.add(chest3);
+        interactablePhysics.add(chest3.getPhysics());
+
+        System.out.println("Spawned 3 chests in Sanctuary");
+
+        // Create 2 NPCs (shopkeepers)
+        NPC merchant1 = new NPC("Merchant Elara", new Vector3f(-10f, 0f, -20f));
+        merchant1.build(assetManager, rootNode, bulletAppState);
+        // Add shop items with prices
+        merchant1.addShopItem("health_potion", 15);
+        merchant1.addShopItem("mana_potion", 20);
+        merchant1.addShopItem("iron_ingot", 25);
+        merchant1.addShopItem("leather", 10);
+        merchant1.setShopUI(shopUI);
+        interactables.add(merchant1);
+        interactablePhysics.add(merchant1.getPhysics());
+
+        NPC merchant2 = new NPC("Blacksmith Kain", new Vector3f(15f, 0f, 5f));
+        merchant2.build(assetManager, rootNode, bulletAppState);
+        // Add shop items with prices
+        merchant2.addShopItem("iron_sword", 100);
+        merchant2.addShopItem("iron_helmet", 80);
+        merchant2.addShopItem("iron_chestplate", 120);
+        merchant2.addShopItem("iron_boots", 60);
+        merchant2.setShopUI(shopUI);
+        interactables.add(merchant2);
+        interactablePhysics.add(merchant2.getPhysics());
+
+        interactablesBuilt = true;
+        System.out.println("Spawned 2 NPCs in Sanctuary");
+    }
+
+    /**
+     * Keep Sanctuary's chests and NPCs in sync with the current stage:
+     * build them when entering the Sanctuary, remove them (and their physics)
+     * when leaving to any other biome.
+     */
+    private void updateSanctuaryInteractables() {
+        if (stageManager == null) return;
+
+        boolean inSanctuary = "Sanctuary".equals(stageManager.getCurrentStageName());
+
+        if (inSanctuary && !interactablesBuilt) {
+            spawnChestsAndNPCs();
+        } else if (!inSanctuary && interactablesBuilt) {
+            cleanupInteractables();
+        }
+    }
+
+    private void cleanupInteractables() {
+        for (Interactable interactable : interactables) {
+            interactable.cleanup();
+        }
+        interactables.clear();
+        for (RigidBodyControl body : interactablePhysics) {
+            bulletAppState.getPhysicsSpace().remove(body);
+        }
+        interactablePhysics.clear();
+        interactablesBuilt = false;
+    }
+
+    private void handleInteract() {
+        // Check if any interactable is in range
+        Vector3f playerPos = playerNode.getWorldTranslation();
+        for (Interactable interactable : interactables) {
+            if (interactable.isInRange(playerPos, INTERACT_RANGE)) {
+                interactable.interact();
+                return; // Only interact with the closest one
+            }
         }
     }
 }

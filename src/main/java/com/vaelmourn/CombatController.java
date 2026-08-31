@@ -190,6 +190,11 @@ public class CombatController {
         }
         if (target != null) {
             target.takeDamage(equipped.def.damage);
+            Vector3f away = target.getPosition().subtract(ray.origin);
+            away.y = 0f;
+            if (away.lengthSquared() > 1e-4f) {
+                target.applyKnockback(away.normalizeLocal(), 12f);
+            }
         }
         playAnimSafe("Shoot");
         equipped.triggerCooldown();
@@ -205,6 +210,7 @@ public class CombatController {
             if (to.length() > equipped.def.range + 0.5f) continue;
             if (forward.dot(to.normalizeLocal()) > 0.5f) {
                 e.takeDamage(equipped.def.damage);
+                e.applyKnockback(to.normalizeLocal(), 22f);
             }
         }
         playAnimSafe("Shield_Push");
@@ -228,6 +234,7 @@ public class CombatController {
             float dot = FastMath.clamp(dir.dot(n), -1f, 1f);
             if (FastMath.acos(dot) <= arcHalf) {
                 e.takeDamage(damage);
+                e.applyKnockback(n, 14f);
             }
         }
     }
