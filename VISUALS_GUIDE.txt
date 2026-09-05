@@ -1,0 +1,345 @@
+================================================================================
+ VAELMOURN — VISUALS & ASSETS GUIDE (textures, item icons, 3D models)
+================================================================================
+Target engine: jMonkeyEngine (jME3) 3.6.1, Maven, run from IntelliJ.
+Project root (where this file lives):  E:\Github codes\vaelmourn
+Source root:  src\main\java\com\vaelmourn
+**Asset root:  src\main\resources\**   <-- ALL art assets go here.
+
+This guide is written specifically for THIS project. Read it top to bottom the
+first time; after that you can jump to the section you need.
+
+--------------------------------------------------------------------------------
+0. QUICK REFERENCE — WHAT GOES WHERE
+--------------------------------------------------------------------------------
+- 3D models (*.glb / *.gltf) ......... src\main\resources\Models\...
+     existing folders:
+        Models\Characters\Player\player.gltf
+        Models\Environment\Forest\...  (trees, stones, ground_grass.glb)
+        Models\Weapons\Melee\Sword.glb
+     --> ADD new models under Models\... keeping the same grouped layout
+         (e.g. Models\Environment\Jungle\... , Models\Weapons\Ranged\...,
+          Models\Characters\Enemies\...).
+
+- Texture images (2D, for materials) .. src\main\resources\Textures\...
+     Convention:  Textures\<category>\
+        Textures\Environment\ground_grass_diffuse.png
+        Textures\Characters\player_albedo.png
+        Textures\Items\health_potion_icon.png
+        Textures\UI\slot_border.png
+     You may create these folders yourself; they do NOT exist yet.
+
+- Fonts ............................... Interface\Fonts\ (uses jME default for now)
+
+- UI layout files (.xml) / shaders ... only needed for advanced work; skip for now.
+
+NOTE: jME3 resolves asset paths with FORWARD SLASHES, e.g.
+    "Models/Environment/Forest/ground_grass.glb"
+    "Textures/Items/health_potion_icon.png"
+and relative to src\main\resources (it is on the classpath). Also put a folder
+named exactly like the folder inside resources — do NOT put folders in src\main\java.
+
+================================================================================
+1. HOW jME3 LOADS ASSETS (read this first!)
+================================================================================
+In every game class you already have an `AssetManager assetManager`. It can load
+almost any of these:
+
+    Spatial model   = assetManager.loadModel("Models/Environment/Forest/ground_grass.glb");
+    Texture2D tex   = (Texture2D) assetManager.loadTexture("Textures/Items/potion.png");
+    Material mat    = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
+
+- loadModel  -> reads a .glb / .gltf / .j3o (also .obj in some builds).
+- loadTexture-> reads .png / .jpg / .dds / .tga.
+- Materials  -> jME ships several ready shaders under Common/MatDefs:
+      * Common/MatDefs/Light/Lighting.j3md    (Lit, uses DiffuseMap)
+      * Common/MatDefs/Light/PBRLighting.j3md (PBR, uses BaseColorMap etc.)
+      * Common/MatDefs/Misc/Unshaded.j3md     (flat color, can use ColorMap)
+      * Common/MatDefs/Misc/Particle.j3md     (particles)
+
+The engine already has these .j3md files (they ship inside the jME jar), so you
+do not need to create materials yourself — you only supply the 2D textures.
+
+TIP / DEBUG: If you want to quickly test that a texture loads, keep the asset
+path EXACT and restart. A wrong path prints a RuntimeException to the console;
+the full path/extension must match what is on disk.
+
+================================================================================
+2. ADDING TEXTURES TO 3D MODELS / WORLD OBJECTS
+================================================================================
+This is the most common thing you'll do. Two main cases:
+
+--- CASE A: Apply a texture to a new object (or a flat-color procedural object) ---
+You need a "Lit" material (so light affects it) and a DiffuseMap.
+
+Example — texture a ground plane in a stage build method:
+-----------------------------------------------------------------------------
+    // 1. create the material using the Lighting shader
+    Material groundMat = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
+    groundMat.setTexture("DiffuseMap", assetManager.loadTexture("Textures/Environment/dirt_ground.png"));
+
+    // 2. (optional) make it tile. Set the wrap so small images repeat seamlessly:
+    Texture2D tex = (Texture2D) assetManager.loadTexture("Textures/Environment/dirt_ground.png");
+    tex.setWrap(Texture.WrapMode.Repeat);
+    groundMat.setTexture("DiffuseMap", tex);
+
+    // 3. give the geometry the material
+    Geometry groundGeo = new Geometry("Ground", new Quad(50f, 50f));
+    groundGeo.setMaterial(groundMat);
+------------------------------------------------------------------------------
+IMPORTANT: The Lighting shader by default uses MaterialColors when no DiffuseMap
+is set. Once you set a DiffuseMap, the texture overrides the "Diffuse" color.
+TIP: if the object looks black, set floor/ambient light (your stages already add
+lights) or add diffuse color as a fallback:
+    groundMat.setColor("Diffuse", ColorRGBA.White);
+
+How to know the size to wrap: if your tile is 256x256 and your ground Quad is
+50 world-units, the texture scales across the whole quad. To repeat it, set
+tex.setWrap(Repeat) and scale the UVs, e.g. add a TexCoord mesh scale, or just
+use a big-enough texture. For simple worlds, a single non-repeating texture over
+a large quad is fine.
+
+--- CASE B: Edit how an EXISTING object looks (trees, stones, player) ---
+The environment models are *.glb assets. A .glb usually already HAS its own
+embedded textures (that's why they look okay). If you want to re-skin one WITHOUT
+editing the model file, attach a material to its Geometry at runtime:
+-----------------------------------------------------------------------------
+    Spatial tree = assetManager.loadModel("Models/Environment/Forest/tree_oak.glb");
+    // Optionally set a solid color per-geometry (keeps original material):
+    //   tree.setMaterial(...)    <-- replaces ALL its materials
+    // Better for one-off recolor: loop geometry meshes and set DiffuseMap:
+    tree.depthFirstTraversal(spatial -> {
+        if (spatial instanceof Geometry g && g.getMesh() != null) {
+            Material m = g.getMaterial();
+            if (m == null) {
+                m = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
+                g.setMaterial(m);
+            }
+            m.setTexture("DiffuseMap", assetManager.loadTexture("Textures/Environment/bark.png"));
+        }
+    });
+------------------------------------------------------------------------------
+BUT: the clean, professional way to give a model textures is to bake them in the
+3D editor (Blender) and export a .glb that already references its own textures.
+See section 5 (Blender export) below.
+
+================================================================================
+3. ADDING UI ITEM ICONS (2D pictures in the inventory)
+================================================================================
+Right now, items are drawn as COLORED CELLS. In src\main\java\com\vaelmourn:
+
+    Item.java         : each item has `iconColor` (a ColorRGBA) and an optional
+                        `modelPath`. There is NO image icon path yet.
+    InventoryUI.java  : builds a colored Unshaded quad per slot and tints it with
+                        item.iconColor (see applySlotVisual + rebuildSlots).
+
+To make icons show real pictures instead of colored squares:
+
+--- STEP 3.1: prepare your icon images ---
+    - Make square images, e.g. 64x64 or 128x128 PNGs with transparency.
+    - Put them under:  src\main\resources\Textures\Items\
+        e.g. Textures\Items\health_potion.png
+             Textures\Items\iron_sword.png
+             Textures\Items\dungeon_key.png
+    - Keep the file name = item id (see ItemRegistry for ids:
+      health_potion, mana_potion, iron_ingot, leather, dungeon_key,
+      iron_sword, iron_helmet, iron_chestplate, iron_boots).
+
+--- STEP 3.2: give Item an icon field ---
+In Item.java add (or modify) a field, e.g.:
+    public final String iconTexture;   // asset path, or null for plain color
+Constructor set it; the shorter constructor passes null.
+
+--- STEP 3.3: choose the source of icon images ---
+Option A (simplest, no code plumbing): the item id string is used to build a path:
+    String iconPath = item.iconTexture != null
+        ? item.iconTexture
+        : "Textures/Items/" + item.id + ".png";
+Option B (you already set iconTexture in ItemRegistry) — register the path there.
+
+--- STEP 3.4: render the image in the slot ---
+In InventoryUI, the icon per slot is a Geometry. To draw a picture:
+    1. Create a Material with the Texture:
+        Material iconMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
+        iconMat.setTexture("ColorMap", assetManager.loadTexture(iconPath));
+       (For Unshaded, use "ColorMap"; for Lighting use "DiffuseMap".)
+    2. Build a quad shaped like the slot:
+        Geometry iconGeo = new Geometry("Icon", new Quad(slot, slot));
+    3. Set the material, attach it to the slot's root, and manage its cull hint
+       just like applySlotVisual already does for the colored icon (Never/Always).
+       (Optional) if the PNG has alpha, that works automatically.
+
+Minimum-change recipe: instead of the colored quad, set the quad's material to
+the texture material. Set iconGeo.setMaterial(iconMat) and keep the existing
+setCullHint logic. The silhouette (letter/type) stays behind for empty slots —
+that's a nice touch and already handled by v.silhouette.
+
+--- STEP 3.5: fallback if a texture is missing ---
+Wrap the loadTexture in try/catch and fall back to the colored cell:
+    try { iconMat.setTexture("ColorMap", assetManager.loadTexture(iconPath)); }
+    catch (RuntimeException e) { iconMat.setColor("Color", item.iconColor); }
+
+================================================================================
+4. ADDING A NEW ITEM + ITS ICON/MODEL (end-to-end example)
+================================================================================
+1) Create the icon PNG at  Textures\Items\my_item.png
+2) Create the 3D model (optional) at  Models\Items\my_item.glb  (see section 5)
+3) Register the item in ItemRegistry.java:
+       add Item with id "my_item", category, iconColor, stacks, value,
+       and now also the icon path / model path fields you added in step 3.2.
+4) World placement / loot: edit Chest.java (loot) or NPC.java (shop items) to
+   hand out the new id.
+5) Restart, open inventory / loot it — the icon should appear.
+
+Where item models are previewed: InventoryUI has a previewModel preview
+(see InventoryUI line ~535 where it rotates a preview). Set item.modelPath and
+load it with assetManager.loadModel(modelPath) to get a 3D preview in the UI.
+
+================================================================================
+5. REPLACING / ADDING 3D MODELS (get .glb files)
+================================================================================
+jME3's glTF loader (jME3 3.6) reads modern .glb and .gltf. Blender exports
+.glb natively.
+
+--- A) Author the model ---
+   1. In Blender, model your object. Keep the poly count reasonable.
+   2. Apply your textures as an "Image Texture" into the Principled BSDF.
+   3. (Important) In Blender export:
+        File > Export > glTF 2.0
+        Format: glTF Binary (.glb)   (single file, embeds textures)
+        Check: > Apply Modifiers, > Unity-style -Z/ +Y? -> For jME, use the
+          default "Blender" axis setting that keeps the model upright; you may
+          need to test. Also enable "Include > Textures" so .glb embeds them.
+      -> Place the exported file in  src\main\resources\Models\...
+         (keep the folder structure, e.g. Models\Characters\Enemies\goblin.glb)
+
+--- B) Load it in code ---
+   Spatial model = assetManager.loadModel("Models/Characters/Enemies/goblin.glb");
+   model.setLocalTranslation(x, y, z);
+   model.setLocalScale(scale);
+   node.attachChild(model);
+
+--- C) attach physics/collision ---
+If the model must block the player (a wall, crate...), attach a physics control
+with a matching shape, similar to what the stages do:
+   RigidBodyControl ctrl = new RigidBodyControl(new BoxCollisionShape(...), 0f);
+   model.addControl(ctrl);
+   bulletAppState.getPhysicsSpace().add(ctrl);
+
+--- D) Sizing / orientation tips ---
+   - jME uses Y-up. If a model lies flat or faces the wrong way, rotate it:
+       model.rotate(0f, angle, 0f);
+   - Scale issues: export at real-world units (1m = 1 jME unit) so it isn't
+     gigantic/tiny. Fix with model.setLocalScale(...).
+
+player model (the character you control):  Models\Characters\Player\player.gltf
+   loaded in ForestBiome.java (assetManager.loadModel("Models/Characters/Player/player.gltf")).
+   To swap the character look, replace that file (keep the SAME file name) or
+   change the path string in code.
+
+================================================================================
+6. GLOW / SPECIAL MATERIALS (useful for portals, particles)
+================================================================================
+- A simple emissive/glowy material without textures can use Lighting.j3md:
+      mat.setColor("GlowColor", ColorRGBA.Cyan);
+   (portal in StageManager already uses a lit material).
+- For 2D UI glow / health bars, the code already builds procedural textures via
+  ByteBuffer (EnemyController.makeSoftGlowTexture). You can REPLACE that with a
+  real PNG: load it and set it on the Particle material's "Texture".
+
+================================================================================
+7. IMPORTANT GOTCHAS / GUIDELINES FOR THIS PROJECT
+================================================================================
+1) DUPLICATE STAGE CLASSES — there are TWO stage source sets:
+       src\main\java\com\vaelmourn\DarkwoodStage.java            (USED / active)
+       src\main\java\com\vaelmourn\stage\DarkwoodStage.java      (OLD copy)
+   The active game uses the ROOT com.vaelmourn.* stages (JungleStage,
+   ForestBiome F's stageManager). Do NOT add/edit models in the stage\ copy —
+   edit the root ones only, or you'll see no change. (Ask before deleting the
+   old `stage\` folder.)
+
+2) ASSET PATHS USE FORWARD SLASHES and are relative to src\main\resources.
+   Wrong path / wrong case / missing extension = load error at runtime.
+
+3) POWER-OF-TWO (optional): for MipMap DDS you need PoT, but jME3 handles
+   arbitrary-size PNGs fine. Prefer sizes like 64, 128, 256 for cleanliness.
+
+4) TEXTURE WRAP for tiled ground: set tex.setWrap(Texture.WrapMode.Repeat).
+
+5) TRANSPARENCY: PNG alpha works automatically with Unshaded ("ColorMap") and
+   with Lighting ("DiffuseMap" + set mat.setBoolean("UseAlpha", true) if needed).
+   For transparent quads used as distance billboards, keep a separate material.
+
+6) after adding assets, you do NOT need to rebuild the jar — IntelliJ copies
+   src\main\resources to target\classes on build. Just make sure resources are
+   added to the classpath (they already are, since existing Models load).
+
+7) Test incrementally: add ONE icon/texture, run `mvn clean compile` (or press
+   Run in IntelliJ), confirm it loads, THEN do the next.
+
+8) BACKUP THE .glb / .gltf you replace, and keep original names when replacing
+   so you don't have to touch code.
+
+================================================================================
+8. STEP-BY-STEP "DO THIS FIRST" BOOTCAMPS
+================================================================================
+__Bootcamp A: put a texture on the existing ground (10 min)__
+ 1. Create folder  src\main\resources\Textures\Environment\
+ 2. Drop a dirt.png tile there.
+ 3. In root stage that builds ground (ForestBiome or JungleStage), after loading
+    ground_grass.glb, traverse its Geom and set a DiffuseMap (see CASE B above).
+ 4. Run. If the whole ground shows 1 tile, add tex.setWrap(Repeat).
+
+__Bootcamp B: give ONE item a real icon (20 min)__
+ 1. Make 64x64 PNG:  Textures\Items\health_potion.png
+ 2. Add `iconTexture` field to Item.java + constructors.
+ 3. In ItemRegistry, set iconTexture for health_potion.
+ 4. In InventoryUI slot-render code, if iconTexture != null build the quad with
+    an Unshaded ColorMap material (else keep colored cell fallback).
+ 5. Run, pick up/open a health potion, confirm image shows.
+
+__Bootcamp C: load a new 3D tree (30 min)__
+ 1. Export a .glb from Blender -> Models\Environment\Jungle\my_tree.glb
+ 2. In the desired stage's build, loadModel it and place a few with random
+    rotation/scale (copy the pattern from JungleStage.placeTree).
+ 3. Give it physics if it should block movement.
+ 4. Run and check orientation; rotate/scale until it stands correctly.
+
+================================================================================
+9. FILE/FOLDER CHEAT-SHEET (create as needed)
+================================================================================
+  src\main\resources\
+    Models\
+      Characters\
+        Player\player.gltf            (swap/replace to change the hero look)
+        Enemies\<name>.glb             (add enemy models later)
+      Environment\
+        Forest\...                     (existing)
+        Jungle\...                     (add jungle rocks/plants)
+        Snow\...  etc.
+      Weapons\
+        Melee\..., Ranged\..., Special\...
+      Items\<item>.glb                 (3D item previews, optional)
+    Textures\
+      Environment\<tile>.png
+      Characters\<albedo>.png
+      Items\<item_icon>.png
+      UI\<panel/icon>.png
+    Interface\
+      Fonts\Default.fnt               (existing default; add custom .fnt later)
+
+================================================================================
+10. NEXT-LEVEL (when you're comfortable)
+================================================================================
+- Custom .j3md material definitions (PBR, tint masks) under a `Materials\` folder.
+- Export a character with an animation rig as a .glb; jME can play its bone
+  animations (your code already uses an AnimComposer, see EnemyController).
+- Replace procedural particle glow with a textured sprite sheet for nicer sparks.
+- Add a title-screen / HUD image by loading a texture into a full-screen Quad
+  attached to guiNode (most UIs here already attach Geometries to guiNode).
+
+================================================================================
+Enjoy! Do the three bootcamps (A, B, C) in order and you'll have textures, item
+icons, and new models wired into the game. If anything loads with an error,
+re-check the path string + extension and that the file is under resources.
+================================================================================

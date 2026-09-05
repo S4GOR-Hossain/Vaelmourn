@@ -23,6 +23,9 @@ import com.jme3.texture.Image;
 import com.jme3.texture.Texture;
 import com.jme3.texture.Texture2D;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * Player inventory / equipment screen. Toggle with E.
  *
@@ -54,6 +57,8 @@ public class InventoryUI {
 
     private final Node hudNode = new Node("InventoryHUD");
     private BitmapFont font;
+
+    private final Map<String, Texture> iconCache = new HashMap<>();
 
     private final float sx;
     private final float sy;
@@ -94,6 +99,7 @@ public class InventoryUI {
         final Node root;
         final Geometry border;
         final Geometry icon;
+        final Geometry iconTex;
         final BitmapText label;
         final BitmapText count;
         final Node silhouette;
@@ -102,13 +108,14 @@ public class InventoryUI {
         final Inventory.EquipSlot equipSlot;
         float x, y;
 
-        SlotView(Node root, Geometry border, Geometry icon,
+        SlotView(Node root, Geometry border, Geometry icon, Geometry iconTex,
                  BitmapText label, BitmapText count, Node silhouette,
                  Slot data, SlotKind kind, Inventory.EquipSlot equipSlot,
                  float x, float y) {
             this.root = root;
             this.border = border;
             this.icon = icon;
+            this.iconTex = iconTex;
             this.label = label;
             this.count = count;
             this.silhouette = silhouette;
@@ -140,6 +147,7 @@ public class InventoryUI {
     private BitmapText tooltipBody;
     private final Node ghostNode = new Node("DragGhost");
     private Geometry ghostIcon;
+    private Geometry ghostIconTex;
     private BitmapText ghostCount;
 
     // ---- character preview (RTT) ----
@@ -441,6 +449,10 @@ public class InventoryUI {
         icon.setCullHint(Spatial.CullHint.Always);
         root.attachChild(icon);
 
+        Geometry iconTex = quad(x + 3f, y + 3f, slot - 6f, slot - 6f, ColorRGBA.White);
+        iconTex.setCullHint(Spatial.CullHint.Always);
+        root.attachChild(iconTex);
+
         Node silhouette = buildSilhouette(x, y, kind, equipSlot);
         if (silhouette != null) root.attachChild(silhouette);
 
@@ -456,7 +468,8 @@ public class InventoryUI {
         count.setLocalTranslation(x + slot - 20f * sx, y + 2f * sy + count.getLineHeight() / 2f, 0f);
         root.attachChild(count);
 
-        return new SlotView(root, border, icon, label, count, silhouette, data, kind, equipSlot, x, y);
+        return new SlotView(root, border, icon, iconTex, label, count, silhouette,
+                data, kind, equipSlot, x, y);
     }
 
     // ================= equipment / trash silhouette icons =================
@@ -604,6 +617,9 @@ public class InventoryUI {
         hudNode.attachChild(ghostNode);
         ghostIcon = quad(0, 0, slot - 4f, slot - 4f, new ColorRGBA(0.7f, 0.7f, 0.7f, 0.9f));
         ghostNode.attachChild(ghostIcon);
+        ghostIconTex = quad(0, 0, slot - 4f, slot - 4f, ColorRGBA.White);
+        ghostIconTex.setCullHint(Spatial.CullHint.Always);
+        ghostNode.attachChild(ghostIconTex);
         ghostCount = new BitmapText(font);
         ghostCount.setSize(15f * sy);
         ghostCount.setColor(new ColorRGBA(0.98f, 0.88f, 0.6f, 1f));
@@ -621,8 +637,18 @@ public class InventoryUI {
             ghostNode.setCullHint(Spatial.CullHint.Never);
             ghostNode.setLocalTranslation(cur.x - gs / 2f, cur.y - gs / 2f + 12f, 0f);
             if (item != null) {
-                ghostIcon.getMaterial().setColor("Color",
-                        new ColorRGBA(item.iconColor.r, item.iconColor.g, item.iconColor.b, 0.85f));
+                Texture tex = loadItemTexture(item.iconPath);
+                if (tex != null) {
+                    ghostIconTex.getMaterial().setTexture("ColorMap", tex);
+                    ghostIconTex.getMaterial().setColor("Color", ColorRGBA.White);
+                    ghostIconTex.setCullHint(Spatial.CullHint.Never);
+                    ghostIcon.setCullHint(Spatial.CullHint.Always);
+                } else {
+                    ghostIcon.getMaterial().setColor("Color",
+                            new ColorRGBA(item.iconColor.r, item.iconColor.g, item.iconColor.b, 0.85f));
+                    ghostIcon.setCullHint(Spatial.CullHint.Never);
+                    ghostIconTex.setCullHint(Spatial.CullHint.Always);
+                }
             }
             ghostCount.setText(selected.data.count > 1 ? "" + selected.data.count : "");
             ghostCount.setLocalTranslation(gs - 22f, gs - 20f, 0f);
@@ -796,17 +822,31 @@ public class InventoryUI {
         boolean isDeny = v == denySlot && denyTimer > 0;
 
         if (v.kind == SlotKind.EQUIPMENT) {
-            // Equipment slots always show their fixed type silhouette. Equipping an item
-            // tints the silhouette with that item's color instead of swapping to a letter.
-            v.icon.setCullHint(Spatial.CullHint.Always);
+            // Equipment slots always show their fixed type silhouette (or the item
+            // icon when one exists). Equipping an item without an icon tints the
+            // silhouette with that item's color instead of swapping to a letter.
             v.label.setText("");
             v.count.setText("");
-            if (v.silhouette != null) {
-                v.silhouette.setCullHint(Spatial.CullHint.Never);
-                if (s.isEmpty()) {
-                    tintSilhouette(v.silhouette, DEFAULT_EQUIP_SIL_COLOR);
-                } else if (s.getItem() != null) {
-                    tintSilhouette(v.silhouette, s.getItem().iconColor);
+            Item equipItem = s.isEmpty() ? null : s.getItem();
+            Texture equipTex = equipItem != null ? loadItemTexture(equipItem.iconPath) : null;
+            if (equipTex != null) {
+                v.iconTex.getMaterial().setTexture("ColorMap", equipTex);
+                v.iconTex.getMaterial().setColor("Color", ColorRGBA.White);
+                v.iconTex.setCullHint(Spatial.CullHint.Never);
+                v.icon.setCullHint(Spatial.CullHint.Always);
+                if (v.silhouette != null) {
+                    v.silhouette.setCullHint(Spatial.CullHint.Always);
+                }
+            } else {
+                v.iconTex.setCullHint(Spatial.CullHint.Always);
+                v.icon.setCullHint(Spatial.CullHint.Always);
+                if (v.silhouette != null) {
+                    v.silhouette.setCullHint(Spatial.CullHint.Never);
+                    if (equipItem != null) {
+                        tintSilhouette(v.silhouette, equipItem.iconColor);
+                    } else {
+                        tintSilhouette(v.silhouette, DEFAULT_EQUIP_SIL_COLOR);
+                    }
                 }
             }
             applyBorderState(v, isSel, isHov, isDeny);
@@ -815,6 +855,7 @@ public class InventoryUI {
 
         if (s.isEmpty()) {
             v.icon.setCullHint(Spatial.CullHint.Always);
+            v.iconTex.setCullHint(Spatial.CullHint.Always);
             if (v.silhouette != null) {
                 v.silhouette.setCullHint(Spatial.CullHint.Never);
             }
@@ -822,27 +863,40 @@ public class InventoryUI {
             v.count.setText("");
         } else {
             Item item = s.getItem();
-            v.icon.setCullHint(Spatial.CullHint.Never);
-            if (v.silhouette != null) {
-                v.silhouette.setCullHint(Spatial.CullHint.Always);
+            Texture tex = item != null ? loadItemTexture(item.iconPath) : null;
+            if (tex != null) {
+                v.iconTex.getMaterial().setTexture("ColorMap", tex);
+                v.iconTex.getMaterial().setColor("Color", ColorRGBA.White);
+                v.iconTex.setCullHint(Spatial.CullHint.Never);
+                v.icon.setCullHint(Spatial.CullHint.Always);
+                v.label.setText("");
+                if (v.silhouette != null) {
+                    v.silhouette.setCullHint(Spatial.CullHint.Always);
+                }
+            } else {
+                v.iconTex.setCullHint(Spatial.CullHint.Always);
+                v.icon.setCullHint(Spatial.CullHint.Never);
+                if (v.silhouette != null) {
+                    v.silhouette.setCullHint(Spatial.CullHint.Always);
+                }
+                if (item != null) {
+                    v.icon.getMaterial().setColor("Color",
+                            new ColorRGBA(item.iconColor.r, item.iconColor.g, item.iconColor.b, 1f));
+                    v.label.setText(item.name.substring(0, 1));
+                    // BitmapText anchors top-left and draws downward; center the letter by
+                    // offsetting up by half its line height (Bug 3).
+                    float lh = v.label.getLineHeight();
+                    v.label.setLocalTranslation(
+                            v.x + slot / 2f - v.label.getLineWidth() / 2f,
+                            v.y + slot / 2f + lh / 2f,
+                            0f);
+                }
             }
-            if (item != null) {
-                v.icon.getMaterial().setColor("Color",
-                        new ColorRGBA(item.iconColor.r, item.iconColor.g, item.iconColor.b, 1f));
-                v.label.setText(item.name.substring(0, 1));
-                // BitmapText anchors top-left and draws downward; center the letter by
-                // offsetting up by half its line height (Bug 3).
-                float lh = v.label.getLineHeight();
-                v.label.setLocalTranslation(
-                        v.x + slot / 2f - v.label.getLineWidth() / 2f,
-                        v.y + slot / 2f + lh / 2f,
-                        0f);
-                // Count pinned to the bottom-right corner, using its own line height.
-                v.count.setText(s.count > 1 ? "" + s.count : "");
-                float ch = v.count.getLineHeight();
-                v.count.setLocalTranslation(v.x + slot - 3f * sx - v.count.getLineWidth(),
-                        v.y + ch / 2f + 2f * sy, 0f);
-            }
+            // Count pinned to the bottom-right corner, using its own line height.
+            v.count.setText(s.count > 1 ? "" + s.count : "");
+            float ch = v.count.getLineHeight();
+            v.count.setLocalTranslation(v.x + slot - 3f * sx - v.count.getLineWidth(),
+                    v.y + ch / 2f + 2f * sy, 0f);
         }
 
         applyBorderState(v, isSel, isHov, isDeny);
@@ -939,5 +993,20 @@ public class InventoryUI {
         bt.setLocalTranslation(x, y, 0f);
         parent.attachChild(bt);
         return bt;
+    }
+
+    /** Loads a 2D item icon by path, cached and missing-file-safe (returns null). */
+    private Texture loadItemTexture(String path) {
+        if (path == null) return null;
+        Texture tex = iconCache.get(path);
+        if (tex == null) {
+            try {
+                tex = assetManager.loadTexture(path);
+            } catch (Exception e) {
+                tex = null;
+            }
+            iconCache.put(path, tex);
+        }
+        return tex;
     }
 }

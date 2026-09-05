@@ -1009,7 +1009,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
      */
     private void spawnChestsAndNPCs() {
         // Create 3 chests at different locations
-        Chest chest1 = new Chest(new Vector3f(10f, 1f, -15f));
+        Chest chest1 = new Chest(new Vector3f(10f, 0.6f, -15f));
         chest1.build(assetManager, rootNode, bulletAppState);
         chest1.addLoot("health_potion", 3);
         chest1.addLoot("mana_potion", 2);
@@ -1018,7 +1018,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         interactables.add(chest1);
         interactablePhysics.add(chest1.getPhysics());
 
-        Chest chest2 = new Chest(new Vector3f(-20f, 1f, 10f));
+        Chest chest2 = new Chest(new Vector3f(-20f, 0.6f, 10f));
         chest2.build(assetManager, rootNode, bulletAppState);
         chest2.addLoot("leather", 8);
         chest2.addLoot("dungeon_key", 1);
@@ -1027,7 +1027,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         interactables.add(chest2);
         interactablePhysics.add(chest2.getPhysics());
 
-        Chest chest3 = new Chest(new Vector3f(5f, 1f, 25f));
+        Chest chest3 = new Chest(new Vector3f(5f, 0.6f, 25f));
         chest3.build(assetManager, rootNode, bulletAppState);
         chest3.addLoot("iron_sword", 1);
         chest3.addLoot("iron_ingot", 10);

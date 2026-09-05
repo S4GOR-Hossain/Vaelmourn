@@ -29,9 +29,10 @@ public class Item {
     public final int maxStack;
     public final int value;          // in soul dust, if it can be sold
     public final String modelPath;   // optional 3D model for previews
+    public final String iconPath;    // optional 2D icon texture for the HUD
 
     public Item(String id, String name, Category category, ColorRGBA iconColor,
-                int maxStack, int value, String modelPath) {
+                int maxStack, int value, String modelPath, String iconPath) {
         this.id = id;
         this.name = name;
         this.category = category;
@@ -39,10 +40,16 @@ public class Item {
         this.maxStack = maxStack;
         this.value = value;
         this.modelPath = modelPath;
+        this.iconPath = iconPath;
+    }
+
+    public Item(String id, String name, Category category, ColorRGBA iconColor,
+                int maxStack, int value, String modelPath) {
+        this(id, name, category, iconColor, maxStack, value, modelPath, null);
     }
 
     public Item(String id, String name, Category category, ColorRGBA iconColor,
                 int maxStack, int value) {
-        this(id, name, category, iconColor, maxStack, value, null);
+        this(id, name, category, iconColor, maxStack, value, null, null);
     }
 }

@@ -10,6 +10,7 @@ import com.jme3.math.FastMath;
 import com.jme3.math.Vector3f;
 import com.jme3.scene.Geometry;
 import com.jme3.scene.Node;
+import com.jme3.scene.Spatial;
 import com.jme3.scene.shape.Box;
 
 import java.util.ArrayList;
@@ -31,7 +32,7 @@ public class AshenWastesStage implements Stage {
 
         buildGroundPlane(assetManager, bulletAppState);
         buildBoundaryWalls(bulletAppState);
-        buildDecoration(assetManager);
+        buildDecoration(assetManager, bulletAppState);
     }
 
     @Override
@@ -139,7 +140,7 @@ public class AshenWastesStage implements Stage {
         physicsObjects.add(physics);
     }
 
-    private void buildDecoration(AssetManager assetManager) {
+    private void buildDecoration(AssetManager assetManager, BulletAppState bulletAppState) {
         Random rand = new Random(100);
 
         // Lava pools
@@ -156,20 +157,46 @@ public class AshenWastesStage implements Stage {
             stageNode.attachChild(lava);
         }
 
-        // Rock pillars
-        for (int i = 0; i < 10; i++) {
+        // Scatter real stone models (from the Forest pack) as rocky outcrops,
+        // replacing the box "pillars". No trees — this biome is barren.
+        String[] stoneModels = {
+                "Models/Environment/Forest/stone_tallA.glb",
+                "Models/Environment/Forest/stone_tallB.glb",
+                "Models/Environment/Forest/stone_tallC.glb",
+                "Models/Environment/Forest/stone_tallD.glb",
+                "Models/Environment/Forest/stone_largeA.glb",
+                "Models/Environment/Forest/stone_largeB.glb",
+                "Models/Environment/Forest/stone_largeC.glb"
+        };
+
+        for (int i = 0; i < 20; i++) {
             float x = (rand.nextFloat() - 0.5f) * 90f;
             float z = (rand.nextFloat() - 0.5f) * 90f;
             if (new Vector3f(x, 0, z).length() < 12f) continue;
 
-            float height = 2f + rand.nextFloat() * 4f;
-            Box pillarBox = new Box(0.4f, height / 2f, 0.4f);
-            Geometry pillar = new Geometry("Pillar_" + i, pillarBox);
-            Material pillarMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-            pillarMat.setColor("Color", new ColorRGBA(0.3f, 0.2f, 0.15f, 1f)); // dark grey
-            pillar.setMaterial(pillarMat);
-            pillar.setLocalTranslation(x, height / 2f, z);
-            stageNode.attachChild(pillar);
+            float size = 3.6f + rand.nextFloat() * 4.8f;
+            placeStone(x, z, size, rand, stoneModels, assetManager, bulletAppState);
         }
+    }
+
+    private void placeStone(float x, float z, float size, Random rand, String[] stoneModels,
+                            AssetManager assetManager, BulletAppState bulletAppState) {
+        String chosenModel = stoneModels[rand.nextInt(stoneModels.length)];
+        Spatial stone = assetManager.loadModel(chosenModel);
+
+        stone.setLocalTranslation(x, 0, z);
+        stone.rotate(0, rand.nextFloat() * FastMath.TWO_PI, 0);
+        stone.setLocalScale(size);
+
+        stageNode.attachChild(stone);
+
+        // Approximate the rock footprint with a box collider so the player can't
+        // walk straight through these rocky outcrops.
+        BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(size * 0.35f, size * 0.4f, size * 0.35f));
+        RigidBodyControl physics = new RigidBodyControl(shape, 0);
+        physics.setPhysicsLocation(new Vector3f(x, size * 0.35f, z));
+
+        bulletAppState.getPhysicsSpace().add(physics);
+        physicsObjects.add(physics);
     }
 }

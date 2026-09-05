@@ -1,6 +1,7 @@
 package com.vaelmourn;
 
 import com.jme3.asset.AssetManager;
+import com.jme3.bounding.BoundingBox;
 import com.jme3.bullet.BulletAppState;
 import com.jme3.bullet.collision.shapes.BoxCollisionShape;
 import com.jme3.bullet.control.RigidBodyControl;
@@ -12,6 +13,7 @@ import com.jme3.math.FastMath;
 import com.jme3.math.Vector3f;
 import com.jme3.scene.Geometry;
 import com.jme3.scene.Node;
+import com.jme3.scene.Spatial;
 import com.jme3.scene.shape.Box;
 
 import java.util.ArrayList;
@@ -33,7 +35,7 @@ public class DarkwoodStage implements Stage {
 
         buildGroundPlane(assetManager, bulletAppState);
         buildBoundaryWalls(bulletAppState);
-        buildDecoration(assetManager);
+        buildDecoration(assetManager, bulletAppState);
     }
 
     @Override
@@ -140,22 +142,69 @@ public class DarkwoodStage implements Stage {
         physicsObjects.add(physics);
     }
 
-    private void buildDecoration(AssetManager assetManager) {
+    private void buildDecoration(AssetManager assetManager, BulletAppState bulletAppState) {
         Random rand = new Random(99);
 
-        // Scatter some dark trees (just box geometries as placeholders)
-        for (int i = 0; i < 8; i++) {
-            float x = (rand.nextFloat() - 0.5f) * 100f;
-            float z = (rand.nextFloat() - 0.5f) * 100f;
-            if (new Vector3f(x, 0, z).length() < 15f) continue;
+        // Dark forest — use a handful of the tree-pack models (only 3-4 types, repeated
+        // randomly so no single tree stands out). The pack models carry their own
+        // colormaps; the stage's dark ambient light keeps the gloomy vibe.
+        String[] treeModels = {
+                "Models/Environment/Forest/tree_pack_02.glb",
+                "Models/Environment/Forest/tree_pack_07.glb",
+                "Models/Environment/Forest/tree_pack_13.glb",
+                "Models/Environment/Forest/tree_pack_18.glb"
+        };
 
-            Box treeBox = new Box(0.5f, 3f, 0.5f);
-            Geometry tree = new Geometry("Tree_" + i, treeBox);
-            Material treeMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-            treeMat.setColor("Color", new ColorRGBA(0.1f, 0.15f, 0.08f, 1f));
-            tree.setMaterial(treeMat);
-            tree.setLocalTranslation(x, 3f, z);
-            stageNode.attachChild(tree);
+        int placed = 0;
+        for (int i = 0; i < 40 && placed < 32; i++) {
+            float x = (rand.nextFloat() - 0.5f) * 84f;
+            float z = (rand.nextFloat() - 0.5f) * 84f;
+            if (new Vector3f(x, 0, z).length() < 9f) {
+                continue;
+            }
+
+            placeTree(x, z, rand, treeModels, assetManager, bulletAppState);
+            placed++;
         }
+        System.out.println("[Darkwood] placed " + placed + " trees with bark hitboxes.");
+    }
+
+    private void placeTree(float x, float z, Random rand, String[] treeModels,
+                           AssetManager assetManager, BulletAppState bulletAppState) {
+        String chosenModel = treeModels[rand.nextInt(treeModels.length)];
+        Spatial tree = assetManager.loadModel(chosenModel);
+
+        tree.rotate(0, rand.nextFloat() * FastMath.TWO_PI, 0);
+
+        float scale = (3.5f + rand.nextFloat() * 1.2f) * 0.8f;
+        tree.setLocalScale(scale);
+
+        // The pack models are pivoted at their vertical center, so lift each tree
+        // until its base rests on the ground instead of half-burying it. Grab the
+        // scaled bounds too - they drive the hitbox size below.
+        tree.updateModelBound();
+        Vector3f extent = new Vector3f();
+        float lift = 0f;
+        if (tree.getWorldBound() instanceof BoundingBox bbox) {
+            bbox.getExtent(extent);
+            lift = extent.y - bbox.getCenter().y;
+        }
+
+        tree.setLocalTranslation(x, lift, z);
+
+        // Hitbox at the bark of the tree: a narrow box the width of the trunk that
+        // spans the lower part of the tree where the trunk actually is. Sized from
+        // the scaled bounds so it stays proportional to each model.
+        float trunkRadius = Math.max(0.5f, Math.min(1.3f, Math.max(extent.x, extent.z) * 0.2f));
+        float treeHeight = 2f * extent.y;
+        float collarHeight = Math.max(2.5f, treeHeight * 0.4f);
+        BoxCollisionShape trunkShape = new BoxCollisionShape(new Vector3f(trunkRadius, collarHeight / 2f, trunkRadius));
+        RigidBodyControl physics = new RigidBodyControl(trunkShape, 0);
+        float centerY = collarHeight / 2f;
+        physics.setPhysicsLocation(new Vector3f(x, centerY, z));
+
+        stageNode.attachChild(tree);
+        bulletAppState.getPhysicsSpace().add(physics);
+        physicsObjects.add(physics);
     }
 }

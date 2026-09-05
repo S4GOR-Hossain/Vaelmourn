@@ -3,14 +3,18 @@ package com.vaelmourn;
 import com.jme3.asset.AssetManager;
 import com.jme3.bullet.BulletAppState;
 import com.jme3.bullet.collision.shapes.BoxCollisionShape;
+import com.jme3.bullet.collision.shapes.CapsuleCollisionShape;
 import com.jme3.bullet.control.RigidBodyControl;
 import com.jme3.material.Material;
 import com.jme3.math.ColorRGBA;
 import com.jme3.math.FastMath;
 import com.jme3.math.Vector3f;
 import com.jme3.scene.Geometry;
+import com.jme3.scene.Mesh;
 import com.jme3.scene.Node;
+import com.jme3.scene.VertexBuffer;
 import com.jme3.scene.shape.Box;
+import com.jme3.util.BufferUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,7 +35,7 @@ public class FrozenDepthsStage implements Stage {
 
         buildGroundPlane(assetManager, bulletAppState);
         buildBoundaryWalls(bulletAppState);
-        buildDecoration(assetManager);
+        buildDecoration(assetManager, bulletAppState);
     }
 
     @Override
@@ -139,22 +143,39 @@ public class FrozenDepthsStage implements Stage {
         physicsObjects.add(physics);
     }
 
-    private void buildDecoration(AssetManager assetManager) {
+    private void buildDecoration(AssetManager assetManager, BulletAppState bulletAppState) {
         Random rand = new Random(101);
 
-        // Ice pillars
+        // Sharp, pointy ice spikes (cone mesh) instead of boxy pillars.
         for (int i = 0; i < 10; i++) {
             float x = (rand.nextFloat() - 0.5f) * 80f;
             float z = (rand.nextFloat() - 0.5f) * 80f;
 
-            float height = 2f + rand.nextFloat() * 3f;
-            Box pillarBox = new Box(0.6f, height / 2f, 0.6f);
-            Geometry pillar = new Geometry("IcePillar_" + i, pillarBox);
-            Material pillarMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-            pillarMat.setColor("Color", new ColorRGBA(0.6f, 0.75f, 0.9f, 0.8f)); // translucent ice blue
-            pillar.setMaterial(pillarMat);
-            pillar.setLocalTranslation(x, height / 2f, z);
-            stageNode.attachChild(pillar);
+            float height = 2f + rand.nextFloat() * 6f;
+            float base = 0.3f + rand.nextFloat() * 0.7f;
+
+            Mesh spikeMesh = createIceSpikeMesh(base, height);
+            Geometry spike = new Geometry("IceSpike_" + i, spikeMesh);
+            Material spikeMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
+            spikeMat.setColor("Color", new ColorRGBA(0.6f, 0.75f, 0.9f, 0.85f)); // translucent ice blue
+            spike.setMaterial(spikeMat);
+            // The cone's base ring sits at mesh-local y=0, so anchoring at y=0 plants
+            // the spike in the ground instead of floating at half height.
+            spike.setLocalTranslation(x, 0f, z);
+            // Vary the lean on both axes and give each spike its own facing.
+            spike.rotate((rand.nextFloat() - 0.5f) * 0.6f,
+                         rand.nextFloat() * FastMath.TWO_PI,
+                         (rand.nextFloat() - 0.5f) * 0.6f);
+            stageNode.attachChild(spike);
+
+            // Hitbox: a capsule roughly wrapping the spike so it can't be walked through.
+            float spikeRadius = base * 1.4f;
+            CapsuleCollisionShape shape = new CapsuleCollisionShape(spikeRadius, height);
+            RigidBodyControl physics = new RigidBodyControl(shape, 0);
+            float centerY = (height + 2f * spikeRadius) / 2f;
+            physics.setPhysicsLocation(new Vector3f(x, centerY, z));
+            bulletAppState.getPhysicsSpace().add(physics);
+            physicsObjects.add(physics);
         }
 
         // Snow mounds
@@ -170,5 +191,52 @@ public class FrozenDepthsStage implements Stage {
             mound.setLocalTranslation(x, 0.3f, z);
             stageNode.attachChild(mound);
         }
+    }
+
+    /**
+     * Builds a pointy cone ("ice spike") mesh: a base ring plus a single apex
+     * vertex, so the top comes to a sharp point. Flat-shaded triangles.
+     */
+    private Mesh createIceSpikeMesh(float baseRadius, float height) {
+        int sides = 8; // radial segments around the base
+        Mesh mesh = new Mesh();
+
+        // Vertex layout: index 0 = apex, index 1 = base center,
+        // indices 2..2+sides-1 = base ring.
+        int vertCount = sides + 2;
+        Vector3f[] positions = new Vector3f[vertCount];
+        Vector3f[] normals = new Vector3f[vertCount];
+        positions[0] = new Vector3f(0f, height, 0f);
+        positions[1] = new Vector3f(0f, 0f, 0f);
+        normals[0] = new Vector3f(0f, 1f, 0f);
+        normals[1] = new Vector3f(0f, -1f, 0f);
+        for (int i = 0; i < sides; i++) {
+            float a = (i / (float) sides) * FastMath.TWO_PI;
+            float nx = FastMath.cos(a);
+            float nz = FastMath.sin(a);
+            positions[i + 2] = new Vector3f(nx * baseRadius, 0f, nz * baseRadius);
+            normals[i + 2] = new Vector3f(nx, 0f, nz);
+        }
+
+        // Indexed side triangles (apex, ring[i], ring[i+1]) + base triangles.
+        int[] indices = new int[sides * 6];
+        for (int i = 0; i < sides; i++) {
+            int next = (i + 1) % sides;
+            // side
+            indices[i * 6 + 0] = 0;
+            indices[i * 6 + 1] = i + 2;
+            indices[i * 6 + 2] = next + 2;
+            // base
+            indices[i * 6 + 3] = 1;
+            indices[i * 6 + 4] = next + 2;
+            indices[i * 6 + 5] = i + 2;
+        }
+
+        mesh.setBuffer(VertexBuffer.Type.Position, 3, BufferUtils.createFloatBuffer(positions));
+        mesh.setBuffer(VertexBuffer.Type.Normal, 3, BufferUtils.createFloatBuffer(normals));
+        mesh.setBuffer(VertexBuffer.Type.Index, 3, BufferUtils.createIntBuffer(indices));
+        mesh.updateBound();
+        mesh.updateCounts();
+        return mesh;
     }
 }

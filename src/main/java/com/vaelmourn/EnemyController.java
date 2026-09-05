@@ -112,6 +112,10 @@ public class EnemyController {
         // default. Rotate 90 degrees about X to stand the capsule upright, matching
         // the physics capsule's vertical orientation.
         capsule.rotate(FastMath.HALF_PI, 0f, 0f);
+        // Minie's BetterCharacterControl keeps the model's origin at the character's
+        // FEET (the physics capsule base). Our cylinder is centered on its origin, so
+        // offset it up by half its height - otherwise the bottom half digs into the ground.
+        capsule.setLocalTranslation(0f, 0.7f, 0f);
         node.attachChild(capsule);
         this.originalMaterial = mat;
 
