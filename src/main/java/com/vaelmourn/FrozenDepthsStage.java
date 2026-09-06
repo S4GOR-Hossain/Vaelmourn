@@ -77,12 +77,12 @@ public class FrozenDepthsStage implements Stage {
 
     @Override
     public ColorRGBA getSkyColor() {
-        return new ColorRGBA(0.7f, 0.8f, 0.92f, 1f); // pale icy blue
+        return new ColorRGBA(0.7f, 0.8f, 0.92f, 1f); // pale icy blue, the whole sky feels cold
     }
 
     @Override
     public ColorRGBA getAmbientColor() {
-        return new ColorRGBA(0.5f, 0.6f, 0.8f, 1f).mult(0.7f); // cold blue
+        return new ColorRGBA(0.5f, 0.6f, 0.8f, 1f).mult(0.7f); // cold blue fill light
     }
 
     @Override
@@ -109,7 +109,7 @@ public class FrozenDepthsStage implements Stage {
         Box groundBox = new Box(50, 0.5f, 50);
         Geometry ground = new Geometry("FrozenDepthsGround", groundBox);
         Material groundMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-        groundMat.setColor("Color", new ColorRGBA(0.75f, 0.85f, 0.95f, 1f)); // icy blue-white
+        groundMat.setColor("Color", new ColorRGBA(0.75f, 0.85f, 0.95f, 1f)); // icy blue-white snowpack
         ground.setMaterial(groundMat);
         ground.setLocalTranslation(0, -0.5f, 0);
         stageNode.attachChild(ground);
@@ -146,7 +146,7 @@ public class FrozenDepthsStage implements Stage {
     private void buildDecoration(AssetManager assetManager, BulletAppState bulletAppState) {
         Random rand = new Random(101);
 
-        // Sharp, pointy ice spikes (cone mesh) instead of boxy pillars.
+        // Cone-mesh ice spikes — sharper and more fitting than the boxy pillars.
         for (int i = 0; i < 10; i++) {
             float x = (rand.nextFloat() - 0.5f) * 80f;
             float z = (rand.nextFloat() - 0.5f) * 80f;
@@ -157,18 +157,18 @@ public class FrozenDepthsStage implements Stage {
             Mesh spikeMesh = createIceSpikeMesh(base, height);
             Geometry spike = new Geometry("IceSpike_" + i, spikeMesh);
             Material spikeMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-            spikeMat.setColor("Color", new ColorRGBA(0.6f, 0.75f, 0.9f, 0.85f)); // translucent ice blue
+            spikeMat.setColor("Color", new ColorRGBA(0.6f, 0.75f, 0.9f, 0.85f)); // translucent ice blue, partly see-through
             spike.setMaterial(spikeMat);
-            // The cone's base ring sits at mesh-local y=0, so anchoring at y=0 plants
-            // the spike in the ground instead of floating at half height.
+            // The cone's base ring sits at mesh-local y=0, so anchoring at y=0 sinks the
+            // spike into the ground instead of leaving it floating at half height.
             spike.setLocalTranslation(x, 0f, z);
-            // Vary the lean on both axes and give each spike its own facing.
+            // Tilt each spike a little on both axes and give it its own facing.
             spike.rotate((rand.nextFloat() - 0.5f) * 0.6f,
                          rand.nextFloat() * FastMath.TWO_PI,
                          (rand.nextFloat() - 0.5f) * 0.6f);
             stageNode.attachChild(spike);
 
-            // Hitbox: a capsule roughly wrapping the spike so it can't be walked through.
+            // Capsule hitbox roughly wrapping the spike so you can't walk through it.
             float spikeRadius = base * 1.4f;
             CapsuleCollisionShape shape = new CapsuleCollisionShape(spikeRadius, height);
             RigidBodyControl physics = new RigidBodyControl(shape, 0);
@@ -178,7 +178,7 @@ public class FrozenDepthsStage implements Stage {
             physicsObjects.add(physics);
         }
 
-        // Snow mounds
+        // Snow mounds to add some texture to the floor
         for (int i = 0; i < 15; i++) {
             float x = (rand.nextFloat() - 0.5f) * 85f;
             float z = (rand.nextFloat() - 0.5f) * 85f;
@@ -186,7 +186,7 @@ public class FrozenDepthsStage implements Stage {
             Box moundBox = new Box(1f + rand.nextFloat() * 1.5f, 0.3f, 1f + rand.nextFloat() * 1.5f);
             Geometry mound = new Geometry("SnowMound_" + i, moundBox);
             Material moundMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-            moundMat.setColor("Color", new ColorRGBA(0.9f, 0.95f, 1f, 1f)); // white
+            moundMat.setColor("Color", new ColorRGBA(0.9f, 0.95f, 1f, 1f)); // plain white snow
             mound.setMaterial(moundMat);
             mound.setLocalTranslation(x, 0.3f, z);
             stageNode.attachChild(mound);
@@ -198,11 +198,11 @@ public class FrozenDepthsStage implements Stage {
      * vertex, so the top comes to a sharp point. Flat-shaded triangles.
      */
     private Mesh createIceSpikeMesh(float baseRadius, float height) {
-        int sides = 8; // radial segments around the base
+        int sides = 8; // segments around the base ring
         Mesh mesh = new Mesh();
 
-        // Vertex layout: index 0 = apex, index 1 = base center,
-        // indices 2..2+sides-1 = base ring.
+        // Vertex layout: 0 = apex, 1 = base center,
+        // 2..2+sides-1 = the base ring.
         int vertCount = sides + 2;
         Vector3f[] positions = new Vector3f[vertCount];
         Vector3f[] normals = new Vector3f[vertCount];
@@ -218,15 +218,15 @@ public class FrozenDepthsStage implements Stage {
             normals[i + 2] = new Vector3f(nx, 0f, nz);
         }
 
-        // Indexed side triangles (apex, ring[i], ring[i+1]) + base triangles.
+        // Indexed triangles: sides (apex, ring[i], ring[i+1]) plus the base cap.
         int[] indices = new int[sides * 6];
         for (int i = 0; i < sides; i++) {
             int next = (i + 1) % sides;
-            // side
+            // side wall triangle
             indices[i * 6 + 0] = 0;
             indices[i * 6 + 1] = i + 2;
             indices[i * 6 + 2] = next + 2;
-            // base
+            // base cap triangle
             indices[i * 6 + 3] = 1;
             indices[i * 6 + 4] = next + 2;
             indices[i * 6 + 5] = i + 2;

@@ -62,11 +62,11 @@ public class StageManager {
         currentStage = stages.get(0);
         currentStage.build(assetManager, rootNode, bulletAppState);
 
-        // Position player at spawn
+        // warp the player to their spawn point
         Vector3f spawnPoint = currentStage.getPlayerSpawnPoint();
         playerControl.warp(spawnPoint);
 
-        // Update lighting for this stage
+        // light the stage back up
         updateLighting();
 
         System.out.println("Loaded initial stage: " + currentStage.getName());
@@ -78,7 +78,7 @@ public class StageManager {
     public void advanceStage() {
         if (currentStage == null) return;
 
-        // Clean up current stage
+        // tear down the stage we're leaving
         currentStage.cleanup(rootNode, bulletAppState);
         activeEnemies.clear();
         if (portalNode != null) {
@@ -88,10 +88,10 @@ public class StageManager {
             portalPosition = null;
         }
 
-        // Move to next stage
+        // on to the next stage
         currentStageIndex++;
 
-        // Check if we've completed all combat stages and need to loop back
+        // cleared every combat stage, so loop back and start the next run
         if (currentStageIndex >= stages.size()) {
             currentStageIndex = 0;
             loopCount++;
@@ -102,7 +102,7 @@ public class StageManager {
         currentStage = stages.get(currentStageIndex);
         currentStage.build(assetManager, rootNode, bulletAppState);
 
-        // Spawn enemies (unless Sanctuary)
+        // spawn this stage's enemies (the Sanctuary hub doesn't get any)
         if (currentStageIndex > 0) {
             activeEnemies = currentStage.spawnEnemies(assetManager, rootNode, bulletAppState, loopCount);
             System.out.println("Spawned " + activeEnemies.size() + " enemies in " + currentStage.getName());
@@ -118,38 +118,38 @@ public class StageManager {
     public void update(float tpf, Vector3f playerPos, BetterCharacterControl playerControl) {
         if (currentStage == null) return;
 
-        // Update enemies
+        // tick every live enemy
         for (EnemyController enemy : activeEnemies) {
             enemy.update(tpf, playerPos, playerStats);
         }
 
-        // Remove dead enemies
+        // sweep out any enemies that croaked this frame
         activeEnemies.removeIf(e -> {
             if (e.isDead()) {
                 e.cleanup(bulletAppState);
                 if (playerStats != null) {
-                    playerStats.addSoulDust(10); // TODO: scale by difficulty
+                    playerStats.addSoulDust(10); // TODO: this reward should probably scale with difficulty
                 }
                 return true;
             }
             return false;
         });
 
-        // Check if the stage should have an exit portal: the Sanctuary hub always
-        // has an exit so the player can leave, and combat stages get one when
-        // cleared (all enemies dead).
+        // figure out whether the stage gets an exit: the Sanctuary hub always
+        // keeps one so the player can leave, and combat stages open theirs
+        // once everything's dead.
         boolean needsPortal = currentStageIndex == 0
                 || (currentStageIndex > 0 && activeEnemies.isEmpty());
         if (needsPortal && portalGeo == null) {
             spawnExitPortal(playerPos);
         }
 
-        // Update portal
+        // portal upkeep
         if (portalGeo != null) {
-            // The oval portal is intentionally non-rotating.
+            // kept the portal non-rotating on purpose — a spinning door looks wrong
 
-            // Check player proximity to portal (horizontal distance, since it's a
-            // vertical doorway the player walks through on the ground).
+            // only care about X/Z distance here; it's a vertical doorway the
+            // player walks through on the ground
             Vector3f horizontal = new Vector3f(
                 playerPos.x - portalPosition.x, 0, playerPos.z - portalPosition.z);
             if (horizontal.length() < PORTAL_ACTIVATION_RANGE) {
@@ -161,14 +161,14 @@ public class StageManager {
     private void spawnExitPortal(Vector3f playerPos) {
         if (portalGeo != null) return;
 
-        // Create a glowing, non-rotating oval portal at center of the stage.
-        // The oval's base rests on the ground (y=0) like a tall doorway.
+        // drop a glowing oval portal in the middle of the stage
+        // its base sits at y=0, so it reads as a tall doorway you walk through
         portalPosition = new Vector3f(0, 4.2f, 25f);
 
         portalNode = new Node("Portal");
-        // Use a standard jME3 Sphere (flattened into an oval) instead of a hand-built
-        // triangle-fan mesh: the custom mesh's buffer upload crashes this AMD OpenGL
-        // driver (EXCEPTION_ACCESS_VIOLATION in glBufferData during MultiPassLighting).
+        // went with a stock jME3 Sphere (flattened into an oval) instead of a
+        // hand-built triangle-fan mesh — that custom mesh's buffer upload crashes
+        // this AMD OpenGL driver (EXCEPTION_ACCESS_VIOLATION in glBufferData, MultiPassLighting)
         com.jme3.scene.shape.Sphere portalMesh = new com.jme3.scene.shape.Sphere(16, 24, 4.2f);
         portalGeo = new Geometry("PortalGeometry", portalMesh);
         portalGeo.setLocalScale(2.2f / 4.2f, 1f, 0.12f);
@@ -177,7 +177,7 @@ public class StageManager {
         portalMat.setBoolean("UseMaterialColors", true);
         portalMat.setColor("Diffuse", new ColorRGBA(0.2f, 1f, 0.8f, 1f));
         portalMat.setColor("GlowColor", new ColorRGBA(0f, 0.8f, 0.5f, 1f));
-        // The oval is a flat disc; make it visible from both sides.
+        // it's a flat disc, so turn face culling off to see it from both sides
         portalMat.getAdditionalRenderState().setFaceCullMode(com.jme3.material.RenderState.FaceCullMode.Off);
         portalGeo.setMaterial(portalMat);
 
@@ -189,7 +189,7 @@ public class StageManager {
     }
 
     private void updateLighting() {
-        // Remove old lights
+        // clear out whatever lights the old stage had
         for (com.jme3.light.Light light : rootNode.getLocalLightList()) {
             rootNode.removeLight(light);
         }
@@ -197,7 +197,7 @@ public class StageManager {
         ColorRGBA skyColor = currentStage.getSkyColor();
         app.getViewPort().setBackgroundColor(skyColor);
 
-        // Add new lights from stage
+        // set up the new stage's lights
         DirectionalLight sun = new DirectionalLight();
         sun.setDirection(currentStage.getSunDirection());
         sun.setColor(ColorRGBA.White.mult(1.0f));
@@ -209,7 +209,7 @@ public class StageManager {
     }
 
     private void updateDifficultyScalar() {
-        // 1.0x + 0.2x per loop, capped at 3.0x
+        // base 1.0x, +0.2x per loop, hard-capped at 3.0x
         difficultyScalar = Math.min(3.0f, 1.0f + loopCount * 0.2f);
     }
 
@@ -233,7 +233,7 @@ public class StageManager {
         return currentStage;
     }
 
-    // Placeholder: inject PlayerStats via setter
+    // placeholder wiring — PlayerStats comes in through this setter
     private PlayerStats playerStats;
     public void setPlayerStats(PlayerStats stats) {
         this.playerStats = stats;

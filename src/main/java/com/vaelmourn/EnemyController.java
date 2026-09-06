@@ -41,9 +41,9 @@ public class EnemyController {
     private float attackCooldown = 1.5f;
     private float timeSinceLastAttack = 0f;
 
-    // Knockback impulse applied by player attacks; fades out over time.
+    // impulse applied by player hits; I let it decay out on its own
     private final Vector3f knockback = new Vector3f();
-    private static final float KNOCKBACK_TIME = 0.35f;   // how long a push lasts
+    private static final float KNOCKBACK_TIME = 0.35f;   // how long a single knockback push sticks around
     private float knockbackTimer = 0f;
 
     private boolean dead = false;
@@ -51,17 +51,17 @@ public class EnemyController {
     private Material originalMaterial;
     private float damageFlashTimer = 0f;
 
-    private int tier; // 1=easy (green), 2=medium (orange), 3=hard (red)
+    private int tier; // tiers: 1=easy (green), 2=medium (orange), 3=hard (red)
 
-    // Stored context for spawning in-world effects.
+    // stashing these so I can spawn in-world effects later
     private final AssetManager assetManager;
     private final Node parentNode;
 
-    // Small health bar above the enemy (world-space, billboarded toward the camera).
+    // small health bar above the enemy, billboarding toward the camera
     private Geometry healthBarFill;
     private float healthBarBaseWidth = 1.2f;
 
-    // Short-lived hit particle burst.
+    // quick burst of particles when the enemy takes a hit
     private final ParticleEmitter hitEmitter;
     private float emitterTimer = 0f;
     private static final float EMITTER_LIFETIME = 0.35f;
@@ -72,7 +72,7 @@ public class EnemyController {
         this.assetManager = assetManager;
         this.parentNode = parentNode;
 
-        // Base stats per tier
+        // baseline stats picked per tier
         float baseHealth = switch(tier) {
             case 1 -> 55f;
             case 2 -> 115f;
@@ -87,14 +87,14 @@ public class EnemyController {
             default -> 2f;
         };
 
-        // Scale by loop count
+        // scale health and damage with loop count
         float loopScalar = (float) Math.pow(1.5, loopCount);
         this.maxHealth = baseHealth * loopScalar;
         this.health = maxHealth;
         this.damage = baseDamage * loopScalar;
         this.moveSpeed = 4f + (tier - 1) * 1.5f;
 
-        // Create visual (capsule placeholder)
+        // build the placeholder capsule visual
         node = new Node("Enemy_Tier" + tier);
         ColorRGBA color = switch(tier) {
             case 1 -> ColorRGBA.Green;
@@ -108,18 +108,18 @@ public class EnemyController {
         Material mat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
         mat.setColor("Color", color);
         capsule.setMaterial(mat);
-        // jME3's Cylinder runs its height along the Z axis, so it lies flat by
-        // default. Rotate 90 degrees about X to stand the capsule upright, matching
-        // the physics capsule's vertical orientation.
+        // jME3's Cylinder runs along the Z axis, so it spawns lying flat. Rotate
+        // it 90 degrees on X to stand the capsule up, matching the physics
+        // capsule's vertical orientation.
         capsule.rotate(FastMath.HALF_PI, 0f, 0f);
-        // Minie's BetterCharacterControl keeps the model's origin at the character's
-        // FEET (the physics capsule base). Our cylinder is centered on its origin, so
-        // offset it up by half its height - otherwise the bottom half digs into the ground.
+        // Minie's BetterCharacterControl anchors the model's origin at the feet
+        // (the physics capsule base), but our cylinder is centered on its origin —
+        // lifted it by half its height so the lower half doesn't sink into the ground.
         capsule.setLocalTranslation(0f, 0.7f, 0f);
         node.attachChild(capsule);
         this.originalMaterial = mat;
 
-        // Small health bar floating above the capsule, billboarded toward the camera.
+        // health bar hovering above the capsule, always turned toward the camera
         Node healthBarNode = new Node("HealthBar");
         healthBarNode.setLocalTranslation(0f, 2.0f, 0f);
         healthBarNode.addControl(new BillboardControl());
@@ -140,8 +140,8 @@ public class EnemyController {
 
         node.attachChild(healthBarNode);
 
-        // Hit particle burst, spawned at the enemy's position when damaged.
-        // Uses a procedurally generated soft glow texture so no external asset is required.
+        // hits spawn this little burst right at the enemy's position
+        // glow texture is made in code so no external asset is needed
         hitEmitter = new ParticleEmitter("HitSpark", ParticleMesh.Type.Triangle, 24);
         Material pm = new Material(assetManager, "Common/MatDefs/Misc/Particle.j3md");
         Texture2D glowTex = null;
@@ -169,14 +169,14 @@ public class EnemyController {
         node.setLocalTranslation(spawnPos);
         parentNode.attachChild(node);
 
-        // Physics
+        // physics rig
         physics = new BetterCharacterControl(0.4f, 1.4f, 0.8f);
         physics.setGravity(new Vector3f(0, -30f, 0));
         physics.warp(spawnPos);
         node.addControl(physics);
         bulletAppState.getPhysicsSpace().add(physics);
 
-        // Animation (placeholder)
+        // animation setup — still a placeholder
         animComposer = findAnimComposer(node);
     }
 
@@ -195,13 +195,13 @@ public class EnemyController {
             damageFlashTimer -= tpf;
         }
 
-        // Keep the floating health bar in sync with current health.
+        // keep the health bar tracking current HP
         if (healthBarFill != null) {
             float ratio = maxHealth <= 0f ? 0f : FastMath.clamp(health / maxHealth, 0f, 1f);
             healthBarFill.setLocalScale(ratio, 1f, 1f);
         }
 
-        // Short-lived hit particle burst: kill it once its lifetime elapses.
+        // the hit burst is short-lived: shut it off once its timer runs out
         if (emitterTimer > 0f) {
             emitterTimer -= tpf;
             if (emitterTimer <= 0f) {
@@ -213,44 +213,44 @@ public class EnemyController {
         Vector3f enemyPos = node.getWorldTranslation();
         float distToPlayer = enemyPos.distance(playerPos);
 
-        // While a knockback is active, dampen the AI's own movement so the push
-        // isn't instantly cancelled by the enemy walking back toward the player.
+        // while a knockback is active, scale down the enemy's own movement so
+        // it can't just walk straight through the push and cancel it
         float kbMag = knockback.length();
         float kbLinger = FastMath.clamp(knockbackTimer / KNOCKBACK_TIME, 0f, 1f);
 
         Vector3f desiredMove = Vector3f.ZERO;
         if (distToPlayer < detectionRange) {
-            // Move toward player
+            // chase the player
             Vector3f direction = playerPos.subtract(enemyPos).normalizeLocal();
 
             if (distToPlayer < attackRange) {
-                // In attack range — stop and attack
+                // in attack range — stop and swing
                 if (timeSinceLastAttack >= attackCooldown) {
                     timeSinceLastAttack = 0f;
                     playAnim("Attack");
-                    // Apply a small amount of damage to the player.
+                    // land a hit on the player
                     if (playerStats != null) {
                         playerStats.damage(damage);
                     }
                 }
             } else {
-                // Move toward player (scaled down while being knocked back).
+                // chase the player, but slower while being knocked back
                 desiredMove = direction.mult(moveSpeed * (1f - kbLinger * 0.85f));
                 playAnim("Walk");
             }
         } else {
-            // Idle
+            // out of range, so just idle
             playAnim("Idle");
         }
 
         physics.setWalkDirection(desiredMove.add(knockback));
 
-        // Decay the knockback over time (horizontal + vertical).
+        // knockback fades out over time, both in X/Z and the vertical hop
         if (kbMag > 0f) {
             knockbackTimer -= tpf;
             float scale = FastMath.clamp(knockbackTimer / KNOCKBACK_TIME, 0f, 1f);
             knockback.multLocal(scale);
-            // Kill tiny leftover values.
+            // flush any tiny leftover values so they don't linger
             if (knockback.lengthSquared() < 0.05f) knockback.set(0f, 0f, 0f);
         }
     }
@@ -268,7 +268,7 @@ public class EnemyController {
             originalMaterial.setColor("Color", ColorRGBA.Red);
         }
 
-        // Small particle burst at the hit point.
+        // quick particle pop where the hit landed
         hitEmitter.setLocalTranslation(node.getWorldTranslation().add(0f, 0.7f, 0f));
         hitEmitter.setEnabled(true);
         hitEmitter.emitAllParticles();
@@ -303,7 +303,7 @@ public class EnemyController {
         physics.setWalkDirection(Vector3f.ZERO);
         playAnim("Death");
 
-        // Shrink animation (optional)
+        // shrink on death — cheap stand-in for a real death animation
         node.scale(0.5f);
     }
 
@@ -351,7 +351,7 @@ public class EnemyController {
                 float dy = (y - center) / (float) center;
                 float dist = FastMath.sqrt(dx * dx + dy * dy);
                 float alpha = FastMath.clamp(1f - dist, 0f, 1f);
-                alpha = alpha * alpha; // sharpen the falloff into a soft glow
+                alpha = alpha * alpha; // squash the falloff into a soft glow
                 data.put((byte) 255);
                 data.put((byte) 255);
                 data.put((byte) 255);
@@ -367,7 +367,7 @@ public class EnemyController {
         return texture;
     }
 
-    // Getters
+    // the plain getters
     public boolean isDead() { return dead; }
     public Vector3f getPosition() { return node.getWorldTranslation(); }
     public float getHealth() { return health; }

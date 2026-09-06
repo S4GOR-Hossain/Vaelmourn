@@ -17,14 +17,14 @@ public class Weapons {
         public final String modelPath;
 
         public final float damage;
-        public final float attackSpeed;       // attacks per second
-        public final float heavyMultiplier;   // melee heavy scaling
+        public final float attackSpeed;       // swings/attacks per second
+        public final float heavyMultiplier;   // damage multiplier for heavy melee hits
         public final float range;
-        public final float projectileSpeed;   // for ranged
-        public final float adsFov;            // zoom fov while RMB held
-        public final float blockReduction;    // 0..1 incoming reduction
-        public final float pushForce;         // for shield push
-        public final float parryWindow;       // seconds
+        public final float projectileSpeed;   // only matters for ranged weapons
+        public final float adsFov;            // fov while aiming down sights (RMB held)
+        public final float blockReduction;    // 0..1 fraction of incoming damage blocked
+        public final float pushForce;         // knockback strength for the shield push
+        public final float parryWindow;       // how long the parry window lasts, in seconds
 
         public WeaponDef(
                 String id,
@@ -83,7 +83,7 @@ public class Weapons {
     }
 
     private void registerDefaults() {
-        // --- MELEE ---
+        // --- melee ---
         add(new WeaponDef(
                 "iron_sword",
                 WeaponGroup.MELEE,
@@ -100,7 +100,7 @@ public class Weapons {
                 0f, 55f, 0f, 0f, 0.14f
         ));
 
-        // --- RANGED ---
+        // --- ranged ---
         add(new WeaponDef(
                 "longbow",
                 WeaponGroup.RANGED,
@@ -117,7 +117,7 @@ public class Weapons {
                 120f, 42f, 0f, 0f, 0f
         ));
 
-        // --- SPECIAL (shield) ---
+        // --- shields & specials ---
         add(new WeaponDef(
                 "kite_shield",
                 WeaponGroup.SPECIAL,

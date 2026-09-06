@@ -84,12 +84,12 @@ public class JungleStage implements Stage {
 
     @Override
     public ColorRGBA getSkyColor() {
-        return new ColorRGBA(0.35f, 0.55f, 0.4f, 1f); // muggy jungle green haze
+        return new ColorRGBA(0.35f, 0.55f, 0.4f, 1f); // thick, muggy jungle-green haze
     }
 
     @Override
     public ColorRGBA getAmbientColor() {
-        return new ColorRGBA(0.35f, 0.6f, 0.35f, 1f).mult(0.7f); // cool green shade
+        return new ColorRGBA(0.35f, 0.6f, 0.35f, 1f).mult(0.7f); // cool green shade under the canopy
     }
 
     @Override
@@ -109,10 +109,10 @@ public class JungleStage implements Stage {
 
     @Override
     public int getStageIndex() {
-        return 4; // comes after Frozen Depths (3)
+        return 4; // stage 4, right after Frozen Depths (3)
     }
 
-    // ---- Environment building (model-loaded, copied from original forest code) ----
+    // ---- Environment building (model-loaded, same approach as the original forest) ----
 
     private void buildGroundPlane(AssetManager assetManager, BulletAppState bulletAppState) {
         Spatial groundModel = assetManager.loadModel("Models/Environment/Forest/ground_grass.glb");
@@ -163,7 +163,7 @@ public class JungleStage implements Stage {
     private void buildJungle(AssetManager assetManager, BulletAppState bulletAppState) {
         Random rand = new Random(42);
 
-        // Densest mix: palms + broad forest trees for a lush canopy.
+        // Heaviest mix: palms plus broad forest trees for a dense canopy.
         String[] treeModels = {
                 "Models/Environment/Forest/tree_palm.glb",
                 "Models/Environment/Forest/tree_palmBend.glb",
@@ -196,7 +196,7 @@ public class JungleStage implements Stage {
                 "Models/Environment/Forest/stump_old.glb"
         };
 
-        int treeCount = 90; // denser than the original forest
+        int treeCount = 90; // packed in tighter than the original forest
 
         for (int i = 0; i < treeCount; i++) {
             float x = (rand.nextFloat() - 0.5f) * 95f;

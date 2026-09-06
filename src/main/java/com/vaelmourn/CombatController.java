@@ -41,7 +41,7 @@ public class CombatController {
         this.animComposer = animComposer;
         this.weapons = weapons;
 
-        this.defaultFov = cam.getFrustumTop() != 0 ? 45f : 45f; // safe default
+        this.defaultFov = cam.getFrustumTop() != 0 ? 45f : 45f; // same either way, just a safe default
         this.targetFov = defaultFov;
     }
 
@@ -94,7 +94,7 @@ public class CombatController {
 
         switch (equipped.def.group) {
             case MELEE:
-                // start heavy charge + brief parry window
+                // start the heavy charge and open a short parry window
                 heavyCharging = true;
                 heavyChargeTime = 0f;
                 parryTimer = equipped.def.parryWindow;
@@ -149,16 +149,16 @@ public class CombatController {
             parryTimer -= tpf;
         }
 
-        // Smooth ADS FOV
+        // Ease the FOV toward the ADS zoom value
         float currentFov = cam.getFov();
         float lerp = FastMath.clamp(tpf * 10f, 0f, 1f);
         cam.setFov(FastMath.interpolateLinear(lerp, currentFov, targetFov));
     }
 
-    // ---------------- actions ----------------
+    // ---------------- the actual attacks ----------------
 
     private void doMeleeLight() {
-        // Cone sweep in front of the player (arc degrees wide, weapon range deep).
+        // Sweep a cone in front of the player — arc across, weapon range deep.
         applyMeleeArc(equipped.def.damage, equipped.def.range, 90f);
         playAnimSafe("Attack_Light");
         equipped.triggerCooldown();
@@ -173,7 +173,7 @@ public class CombatController {
     }
 
     private void doRangedFire() {
-        // Hitscan: the first enemy close to the camera ray takes damage.
+        // Pure hitscan: whichever enemy sits closest to the camera ray eats the damage.
         Ray ray = new Ray(cam.getLocation(), cam.getDirection());
         float best = Float.MAX_VALUE;
         EnemyController target = null;
@@ -201,7 +201,7 @@ public class CombatController {
     }
 
     private void doShieldPush() {
-        // Short-range knockback/push in front of the player.
+        // Short-range push that knocks anything in front of the player back.
         Vector3f forward = cam.getDirection().normalizeLocal();
         for (EnemyController e : enemies) {
             if (e.isDead()) continue;
@@ -229,7 +229,7 @@ public class CombatController {
             Vector3f to = e.getPosition().subtract(origin);
             to.y = 0f;
             float dist = to.length();
-            if (dist > reach + 0.5f) continue; // + small enemy radius slack
+            if (dist > reach + 0.5f) continue; // + a touch of slack for the enemy radius
             Vector3f n = to.normalizeLocal();
             float dot = FastMath.clamp(dir.dot(n), -1f, 1f);
             if (FastMath.acos(dot) <= arcHalf) {

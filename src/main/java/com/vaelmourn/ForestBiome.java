@@ -121,7 +121,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     private BitmapText hudEnemiesText;
     private float hudSx = 1f;
     private float hudSy = 1f;
-    private static final float HUD_HP_FULL_WIDTH = 252f; // inner fill width at 1080p
+    private static final float HUD_HP_FULL_WIDTH = 252f; // the fill bar's inner width at 1080p
 
     private Node forestZoneNode;
 
@@ -137,7 +137,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     private static final float INTERACT_RANGE = 3.5f;
 
     private final AnalogListener analogListener = (name, value, tpf) -> {
-        if (inventoryOpen) return; // don't orbit the camera while browsing
+        if (inventoryOpen) return; // so it doesn't orbit the camera while browsing
         switch (name) {
             case "MouseX+":
                 camYaw -= value * HORIZONTAL_SENSITIVITY;
@@ -192,14 +192,14 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
         viewPort.setBackgroundColor(new ColorRGBA(0.45f, 0.65f, 0.82f, 1f));
 
-        // Initialize Lemur (jME3 UI toolkit) so GUI widgets can be created anywhere.
-        // GuiGlobals.initialize(this) must be called once, before building any Lemur UI.
+        // Lemur (jME3's UI toolkit) needs to be up before we can make any GUI widgets.
+        // GuiGlobals.initialize(this) only needs the one call, before building Lemur UI.
         GuiGlobals.initialize(this);
-        // The Glass theme is loaded from a Groovy stylesheet. On JDKs newer than what the
-        // bundled Groovy supports this throws, so guard it to never break startup. The game's
-        // HUD is jME3-native (not Lemur), so a missing Glass theme has no functional impact.
+        // The Glass theme comes from a Groovy stylesheet, which throws on JDKs newer than
+        // the bundled Groovy supports — so guard it so startup never breaks. Our HUD is
+        // plain jME3 (not Lemur), so a missing Glass theme has zero impact anyway.
         try {
-            BaseStyles.loadGlassStyle(); // dark translucent "Glass" look (sci-fi default)
+            BaseStyles.loadGlassStyle(); // gives Lemur its dark translucent sci-fi look
         } catch (Throwable t) {
             System.err.println("Lemur Glass style unavailable: " + t);
         }
@@ -207,20 +207,20 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         bulletAppState = new BulletAppState();
         stateManager.attach(bulletAppState);
 
-        // Disable the default debug overlays (FPS/stats HUD and debug keys) so
-        // they don't render on-screen text (bottom-left numbers) in the game UI.
+        // Kill the default stats/FPS overlay and debug keys so they don't paint
+        // numbers over the bottom-left corner of the game UI.
         stateManager.detach(stateManager.getState(StatsAppState.class));
         stateManager.detach(stateManager.getState(DebugKeysAppState.class));
 
-        // The world geometry, lighting and atmosphere now come from the Stage system,
-        // which is initialized after the player and PlayerStats are created (below)
-        // because loadInitialStage() warps the player and needs those to exist.
+        // World geometry, lighting and atmosphere all live in the Stage system now,
+        // which is why it's set up after the player and PlayerStats below —
+        // loadInitialStage() warps the player and needs those to already exist.
 
         // Player
         Spatial playerModel = assetManager.loadModel("Models/Characters/Player/player.gltf");
 
-        // GPU (hardware) skinning of the skinned model crashes this AMD OpenGL driver
-        // (EXCEPTION_ACCESS_VIOLATION in glBufferData). Force CPU skinning instead.
+        // Hardware (GPU) skinning of this model crashes the AMD OpenGL driver
+        // (EXCEPTION_ACCESS_VIOLATION in glBufferData), so we stick to CPU skinning.
         disableHardwareSkinning(playerModel);
 
         playerNode = new Node("Player");
@@ -273,14 +273,14 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         // Combat system
         weapons = new Weapons();
         combat = new CombatController(cam, playerNode, animComposer, weapons);
-        combat.equip("iron_sword"); // default weapon
+        combat.equip("iron_sword"); // iron sword is the default loadout
 
         // Inventory + HUD
         ItemRegistry.registerDefaults();
         inventory = new Inventory();
         playerStats = new PlayerStats();
 
-        // Give the player a few starter items so the UI is populated.
+        // Throw in some starter items so the inventory UI actually has stuff in it.
         inventory.addItem("health_potion", 6);
         inventory.addItem("mana_potion", 3);
         inventory.addItem("dungeon_key", 2);
@@ -313,14 +313,14 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         stageManager.loadInitialStage(playerControl);
         combat.setEnemies(stageManager.getActiveEnemies());
 
-        // Shop and Chest UIs must be created BEFORE the interactables reference them,
-        // otherwise pressing F near a chest/NPC does nothing (their handlers are null).
+        // Build the Shop and Chest UIs before the interactables hold a reference to them,
+        // otherwise pressing F near a chest/NPC does nothing at all (handlers stay null).
         shopUI = new ShopUI(assetManager, renderManager, inputManager, cam, guiNode,
                 inventory, playerStats, settings.getWidth(), settings.getHeight());
         chestUI = new ChestUI(assetManager, renderManager, inputManager, cam, guiNode,
                 inventory, settings.getWidth(), settings.getHeight());
 
-        // Spawn chests and NPCs in the Sanctuary (starting stage)
+        // Drop chests and NPCs into the Sanctuary (the starting stage)
         spawnChestsAndNPCs();
 
         inventoryUI = new InventoryUI(assetManager, renderManager, inputManager, cam,
@@ -342,10 +342,10 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
         inputManager.addListener(analogListener, "MouseX+", "MouseX-", "MouseY+", "MouseY-");
 
-        // The EnvironmentCamera / light-probe baking re-renders the whole scene into an
-        // environment map every frame, which crashes the native AMD OpenGL driver
-        // (EXCEPTION_ACCESS_VIOLATION in glBufferData). Lighting now comes from the Stage
-        // system, so the probe is unnecessary -- leave it unattached to stay safe.
+        // Light-probe baking re-renders the whole scene into an environment map every
+        // frame and that crashed the native AMD OpenGL driver (EXCEPTION_ACCESS_VIOLATION
+        // in glBufferData). The Stage system handles lighting now, so the probe is just
+        // left unattached to keep things safe.
         // envCam = new EnvironmentCamera();
         // stateManager.attach(envCam);
     }
@@ -698,13 +698,13 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         inputManager.addMapping("Dodge", new KeyTrigger(KeyInput.KEY_LSHIFT));
         inputManager.addMapping("Crouch", new KeyTrigger(KeyInput.KEY_LCONTROL));
 
-        // Inventory toggle
+        // opens/closes the inventory
         inputManager.addMapping("Inventory", new KeyTrigger(KeyInput.KEY_E));
 
-        // Interact with NPCs/Chests
+        // talk to NPCs / open chests
         inputManager.addMapping("Interact", new KeyTrigger(KeyInput.KEY_F));
 
-        // Combat mouse buttons
+        // mouse buttons drive combat
         inputManager.addMapping("AttackPrimary", new MouseButtonTrigger(MouseInput.BUTTON_LEFT));
         inputManager.addMapping("AttackSecondary", new MouseButtonTrigger(MouseInput.BUTTON_RIGHT));
 
@@ -736,8 +736,8 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             case "Dodge":
             case "Crouch":
             case "AttackPrimary":
-                // When any UI is open, route the click to that UI (inventory select /
-                // drag-drop) instead of the gameplay combat.
+                // When some UI is open, hand the click to it (inventory select /
+                // drag-drop) instead of triggering combat.
                 if (isUiOpen()) {
                     if (isPressed && inventoryOpen && inventoryUI != null) inventoryUI.handlePrimaryClick();
                     return;
@@ -745,7 +745,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                 break;
 
             case "AttackSecondary":
-                // Ignore gameplay input while any UI is open.
+                // drop gameplay input whenever a UI is up.
                 if (isUiOpen()) return;
                 break;
         }
@@ -805,7 +805,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         inventoryUI.setVisible(inventoryOpen);
 
         if (inventoryOpen) {
-            // Freeze gameplay state while browsing.
+            // freeze the player in place while they browse.
             inputManager.setCursorVisible(true);
             if (playerControl != null) playerControl.setWalkDirection(Vector3f.ZERO);
             forward = backward = left = right = false;
@@ -829,7 +829,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             inventoryUI.update(tpf, cam);
         }
 
-        // While any UI (inventory, shop, chest) is open the game world is paused.
+        // the world is paused while inventory/shop/chest is open.
         if (isUiOpen()) {
             return;
         }
@@ -848,8 +848,8 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             combat.update(tpf);
         }
 
-        // Chests and NPCs only exist in the Sanctuary: rebuild when we enter it,
-        // and clean them up (plus their physics) when we leave to another biome.
+        // Chests/NPCs only live in the Sanctuary — rebuild them when we come back,
+        // and tear them down (physics included) when we move to another biome.
         updateSanctuaryInteractables();
 
         updateHUD();
@@ -948,9 +948,9 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         float fillX = margin + inset;
         float fillY = 20f * hudSy + inset;
 
-        // dark frame/background bar
+        // the dark backing bar behind the hp fill
         makeHudQuad(margin, 20f * hudSy, barW, barH, new ColorRGBA(0.08f, 0.08f, 0.10f, 0.85f));
-        // health fill (green), width scaled per-frame in updateHUD
+        // green hp fill — updateHUD scales its width every frame
         hudHpFill = makeHudQuad(fillX, fillY, HUD_HP_FULL_WIDTH * hudSx, 16f * hudSy,
                 new ColorRGBA(0.2f, 0.85f, 0.25f, 1f));
 
@@ -963,7 +963,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         hudHpText.setLocalTranslation(fillX + 4f * hudSx, fillY + 1f * hudSy, 0);
         hudNode.attachChild(hudHpText);
 
-        // enemies remaining indicator below the bar
+        // enemy counter sitting just below the hp bar
         hudEnemiesText = new BitmapText(font, false);
         hudEnemiesText.setSize(16f * hudSy);
         hudEnemiesText.setColor(new ColorRGBA(0.9f, 0.9f, 0.95f, 1f));
@@ -981,7 +981,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         float maxHp = Math.max(1f, playerStats.getMaxHealth());
         float ratio = Math.max(0f, Math.min(1f, playerStats.getHealth() / maxHp));
 
-        // tint fill green -> yellow -> red as health drops
+        // hp fill goes green -> yellow -> red as health falls
         ColorRGBA fillColor;
         if (ratio > 0.5f) {
             fillColor = new ColorRGBA(0.2f, 0.85f, 0.25f, 1f);
@@ -1008,7 +1008,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
      * Spawn chests and NPCs in the Sanctuary/Forest biome.
      */
     private void spawnChestsAndNPCs() {
-        // Create 3 chests at different locations
+        // scatter three chests around the area
         Chest chest1 = new Chest(new Vector3f(10f, 0.6f, -15f));
         chest1.build(assetManager, rootNode, bulletAppState);
         chest1.addLoot("health_potion", 3);
@@ -1038,10 +1038,10 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
         System.out.println("Spawned 3 chests in Sanctuary");
 
-        // Create 2 NPCs (shopkeepers)
+        // two shopkeeper NPCs
         NPC merchant1 = new NPC("Merchant Elara", new Vector3f(-10f, 0f, -20f));
         merchant1.build(assetManager, rootNode, bulletAppState);
-        // Add shop items with prices
+        // stock the shop with items and prices
         merchant1.addShopItem("health_potion", 15);
         merchant1.addShopItem("mana_potion", 20);
         merchant1.addShopItem("iron_ingot", 25);
@@ -1052,7 +1052,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
         NPC merchant2 = new NPC("Blacksmith Kain", new Vector3f(15f, 0f, 5f));
         merchant2.build(assetManager, rootNode, bulletAppState);
-        // Add shop items with prices
+        // stock the shop with items and prices
         merchant2.addShopItem("iron_sword", 100);
         merchant2.addShopItem("iron_helmet", 80);
         merchant2.addShopItem("iron_chestplate", 120);
@@ -1095,12 +1095,12 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     }
 
     private void handleInteract() {
-        // Check if any interactable is in range
+        // see if anything interactable is in range
         Vector3f playerPos = playerNode.getWorldTranslation();
         for (Interactable interactable : interactables) {
             if (interactable.isInRange(playerPos, INTERACT_RANGE)) {
                 interactable.interact();
-                return; // Only interact with the closest one
+                return; // only take the closest one
             }
         }
     }

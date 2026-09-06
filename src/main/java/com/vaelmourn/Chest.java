@@ -42,13 +42,13 @@ public class Chest implements Interactable {
      * Build the chest geometry and physics in the world.
      */
     public void build(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState) {
-        // Create a simple box to represent the chest
+        // Just a plain box for the chest body
         Box chestBox = new Box(0.5f, 0.6f, 0.5f);
         Geometry chestGeo = new Geometry("ChestGeometry", chestBox);
 
         Material chestMat = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
         chestMat.setBoolean("UseMaterialColors", true);
-        chestMat.setColor("Diffuse", new ColorRGBA(0.6f, 0.4f, 0.1f, 1f)); // brownish
+        chestMat.setColor("Diffuse", new ColorRGBA(0.6f, 0.4f, 0.1f, 1f)); // brownish wood
         chestMat.setColor("Specular", ColorRGBA.White);
         chestMat.setFloat("Shininess", 8f);
         chestGeo.setMaterial(chestMat);
@@ -56,7 +56,7 @@ public class Chest implements Interactable {
         node.attachChild(chestGeo);
         parentNode.attachChild(node);
 
-        // Add physics (static, non-moving)
+        // Static body so it doesn't get shoved around
         BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(0.5f, 0.6f, 0.5f));
         physics = new RigidBodyControl(shape, 0);
         physics.setPhysicsLocation(position);
@@ -83,12 +83,12 @@ public class Chest implements Interactable {
 
     @Override
     public void interact() {
-        if (opened) return; // Already opened
+        if (opened) return; // one-time loot, already opened
 
         opened = true;
         System.out.println("Chest opened! Contains " + lootItems.size() + " item stacks.");
 
-        // Show chest UI (will be created separately or passed in)
+        // Open the loot UI if a handler was attached
         if (chestUI != null) {
             chestUI.show(lootItems, lootCounts);
         }

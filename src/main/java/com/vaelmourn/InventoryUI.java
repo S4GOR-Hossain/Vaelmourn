@@ -66,7 +66,7 @@ public class InventoryUI {
     private float pw, ph, px, py;         // panel
     private float panelTop, panelRight;
     private float slot, gap, eqSlot, eqGap;
-    private float playerBlockLeft;        // left edge of the cohesive right block
+    private float playerBlockLeft;        // left edge of the right-hand block
     private float previewLeft, previewBottom, previewW, previewH;
 
     private static final ColorRGBA DEFAULT_EQUIP_SIL_COLOR = new ColorRGBA(0.55f, 0.58f, 0.62f, 0.30f);
@@ -182,7 +182,7 @@ public class InventoryUI {
         buildGridAndToolbar();
         buildRightBlock();
         buildPreview(cam, playerModel);
-        buildPreviewFrame();       // border outline drawn ON TOP of the render
+        buildPreviewFrame();       // draws the border on top of the rendered preview
         buildTooltip();
         buildGhost();
 
@@ -314,7 +314,7 @@ public class InventoryUI {
     // ================= cohesive right block =================
 
     private void buildRightBlock() {
-        // Preview window: 25% of panel width x 60% of panel height.
+        // Preview window takes about a quarter of the panel width and 60% of its height.
         previewW = 0.25f * pw;
         previewH = 0.60f * ph;
 
@@ -322,34 +322,34 @@ public class InventoryUI {
         float statsY = py + 34f * sy;
         float statsH = 96f * sy;
 
-        // Preview is placed just above the stats bar.
+        // Preview sits right above the stats bar.
         previewBottom = statsY + statsH + 18f * sy;
         float previewTop = previewBottom + previewH;
 
         // Anchor the right block to the grid's right edge (Bug 4), not the panel's,
-        // so the two halves sit close together with no dead space in between.
+        // keeps the two halves snug together with no dead space between them.
         float gridLeft = px + 0.03f * pw;
         float gridRight = gridLeft + (Inventory.GRID_COLS * slot + (Inventory.GRID_COLS - 1) * gap);
         float fixedSpacing = 48f * sx;
         playerBlockLeft = gridRight + fixedSpacing;
 
-        float colX = playerBlockLeft + previewW + 14f * sx; // equipment column right of preview
+        float colX = playerBlockLeft + previewW + 14f * sx; // equipment column goes right of the preview
         previewLeft = playerBlockLeft;
 
-        // Identity block above the preview.
+        // identity block lives above the preview.
         identityX = previewLeft;
         barX = identityX;
 
         barThick = Math.max(1.5f, 4f * sy);
-        // Name text draws downward from its top-left anchor, so the bar baseline uses
+        // Name text anchors top-left and draws downward, so the bar baseline works off
         // the measured line height instead of a flat guess.
         float idLineH = 26f * sy;
         hpBottomY = previewTop + 34f * sy - idLineH - 6f * sy;
         xpBottomY = hpBottomY - (barThick + 5f * sy);
 
-        // Build both track and fill meshes at width 1f so local scale == real pixel width.
-        // Track color must be clearly distinct from the panel background (0.08,0.09,0.11)
-        // so the empty-state bar is visible even at fraction 0.
+        // Build track and fill both at width 1f so local scale == real pixel width.
+        // Track color has to stand out from the panel background (0.08,0.09,0.11)
+        // or the empty bar vanishes at fraction 0.
         ColorRGBA trackCol = new ColorRGBA(0.16f, 0.17f, 0.19f, 0.95f);
         hpTrack = quad(barX, hpBottomY, 1f, barThick, trackCol);
         hudNode.attachChild(hpTrack);
@@ -361,11 +361,11 @@ public class InventoryUI {
         xpFill = quad(barX, xpBottomY, 1f, barThick, new ColorRGBA(0.28f, 0.48f, 0.92f, 1f));
         hudNode.attachChild(xpFill);
 
-        // Identity text attached AFTER the bars so it draws on top (Bug 2).
+        // Identity text goes on AFTER the bars so it draws over them (Bug 2).
         identityText = addText(hudNode, "00 | Player", identityX, previewTop + 34f * sy, idLineH,
                 new ColorRGBA(0.94f, 0.96f, 0.98f, 1f));
 
-        // Soul Dust grouped beside the name (to the right of the identity block).
+        // Soul Dust sits right of the name, still inside the identity block.
         float idBaseline = previewTop + 34f * sy;
         soulIconX = identityX + identityText.getLineWidth() + 24f * sx;
         soulIconY = idBaseline - idLineH - 30f * sy;
@@ -375,7 +375,7 @@ public class InventoryUI {
         soulText = addText(hudNode, "0", soulIconX + 30f * sx, soulIconY - 22f * sy, 22f * sy,
                 new ColorRGBA(0.86f, 0.95f, 1f, 1f));
 
-        // Equipment column + trash (right of the preview).
+        // Equipment column and trash live to the right of the preview.
         for (int i = 0; i < EQUIP_VISUAL.length; i++) {
             float top = previewTop - i * (eqSlot + eqGap);
             buildEquipSlot(i, colX, top - eqSlot, EQUIP_VISUAL[i]);
@@ -411,11 +411,11 @@ public class InventoryUI {
         float segW = statsW / 4f;
         for (int i = 0; i < 4; i++) {
             float segX = statsX + i * segW;
-            // centered icon label near the top of the segment
+            // icon label centered near the top of its segment
             BitmapText icon = addText(hudNode, icons[i], 0, 0, 15f * sy,
                     new ColorRGBA(0.88f, 0.74f, 0.38f, 1f));
             icon.setLocalTranslation(segX + segW / 2f - icon.getLineWidth() / 2f, y + h - 20f * sy, 0f);
-            // centered numeric value
+            // number centered beneath the icon
             statValues[i] = addText(hudNode, "0", 0, 0, 28f * sy, ColorRGBA.White);
             statValues[i].setLocalTranslation(segX + segW / 2f - statValues[i].getLineWidth() / 2f,
                     y + 14f * sy, 0f);
@@ -564,7 +564,7 @@ public class InventoryUI {
 
         ViewPort off = renderManager.createMainView("inventoryPreview", offCam);
         off.setClearFlags(true, true, true);
-        // Clear to the same color as the panel interior so we don't get a black box.
+        // Clear to the panel's interior color so we don't see a black box.
         off.setBackgroundColor(new ColorRGBA(0.08f, 0.09f, 0.11f, 1f));
         off.attachScene(previewRoot);
         off.setOutputFrameBuffer(fb);
@@ -822,9 +822,9 @@ public class InventoryUI {
         boolean isDeny = v == denySlot && denyTimer > 0;
 
         if (v.kind == SlotKind.EQUIPMENT) {
-            // Equipment slots always show their fixed type silhouette (or the item
-            // icon when one exists). Equipping an item without an icon tints the
-            // silhouette with that item's color instead of swapping to a letter.
+            // Equipment slots keep their fixed type silhouette (or the item icon
+            // when one exists). Icon-less items just tint the silhouette with the
+            // item's color instead of falling back to a letter.
             v.label.setText("");
             v.count.setText("");
             Item equipItem = s.isEmpty() ? null : s.getItem();
@@ -883,8 +883,8 @@ public class InventoryUI {
                     v.icon.getMaterial().setColor("Color",
                             new ColorRGBA(item.iconColor.r, item.iconColor.g, item.iconColor.b, 1f));
                     v.label.setText(item.name.substring(0, 1));
-                    // BitmapText anchors top-left and draws downward; center the letter by
-                    // offsetting up by half its line height (Bug 3).
+                    // BitmapText anchors top-left and draws downward, so the letter centers
+                    // by offsetting up half its line height (Bug 3).
                     float lh = v.label.getLineHeight();
                     v.label.setLocalTranslation(
                             v.x + slot / 2f - v.label.getLineWidth() / 2f,
@@ -892,7 +892,7 @@ public class InventoryUI {
                             0f);
                 }
             }
-            // Count pinned to the bottom-right corner, using its own line height.
+            // Count pins itself to the bottom-right corner, using its own line height.
             v.count.setText(s.count > 1 ? "" + s.count : "");
             float ch = v.count.getLineHeight();
             v.count.setLocalTranslation(v.x + slot - 3f * sx - v.count.getLineWidth(),
@@ -934,7 +934,7 @@ public class InventoryUI {
 
     private void applyTrashVisual() {
         if (trashView == null) return;
-        // trash-can silhouette always visible
+        // keep the trashcan silhouette up at all times
         if (trashView.silhouette != null) {
             trashView.silhouette.setCullHint(Spatial.CullHint.Never);
         }

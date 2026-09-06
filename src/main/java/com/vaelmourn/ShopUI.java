@@ -62,7 +62,7 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
         font = assetManager.loadFont("Interface/Fonts/Default.fnt");
         shopNode = new Node("ShopUI");
 
-        // Register input handlers
+        // Hook up the shop's input bindings.
         inputManager.addMapping("ShopUp", new KeyTrigger(KeyInput.KEY_W), new KeyTrigger(KeyInput.KEY_UP));
         inputManager.addMapping("ShopDown", new KeyTrigger(KeyInput.KEY_S), new KeyTrigger(KeyInput.KEY_DOWN));
         inputManager.addMapping("ShopBuy", new KeyTrigger(KeyInput.KEY_RETURN), new MouseButtonTrigger(MouseInput.BUTTON_LEFT));
@@ -80,7 +80,7 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
         displayedItems.clear();
         selectedIndex = 0;
 
-        // Build the display list from the NPC's shop inventory
+        // Pull the sellable items out of this NPC's shop stock.
         for (int i = 0; i < npc.getShopItems().size(); i++) {
             String itemId = npc.getShopItems().get(i);
             int price = npc.getShopPrices().get(i);
@@ -126,7 +126,7 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
             ShopItem item = displayedItems.get(i);
             float itemY = startY - (i * 35f * uiScale);
 
-            // Background highlight for selected item
+            // Highlight bar so you can see which row is selected.
             if (i == selectedIndex) {
                 Geometry highlight = new Geometry("Highlight", new Quad(400f * uiScale, 30f * uiScale));
                 Material highlightMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
@@ -144,7 +144,7 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
             shopNode.attachChild(itemText);
         }
 
-        // Instructions
+        // Control hints shown under the list.
         startY -= (displayedItems.size() + 1) * 35f * uiScale + 20f * uiScale;
         BitmapText instructions = new BitmapText(font, false);
         instructions.setSize(12f * uiScale);
@@ -187,7 +187,7 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
             return;
         }
 
-        // Deduct cost and add item to inventory
+        // Charge the player and hand over the item.
         playerStats.spendSoulDust(item.price);
         inventory.addItem(item.itemId, 1);
         System.out.println("Purchased " + item.name + " for " + item.price + " soul dust!");
@@ -231,7 +231,7 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
 
     @Override
     public void purchaseItem(String itemId, int count) {
-        // This is called by the NPC when a purchase is made
-        // Already handled in buySelectedItem()
+        // The NPC calls this whenever a purchase goes through
+        // buySelectedItem() already handles everything
     }
 }

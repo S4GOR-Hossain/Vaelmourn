@@ -27,7 +27,7 @@ public class NPC implements Interactable {
     private Vector3f position;
     private String name;
     private List<String> shopItems = new ArrayList<>();
-    private List<Integer> shopPrices = new ArrayList<>(); // in soul dust
+    private List<Integer> shopPrices = new ArrayList<>(); // all priced in soul dust
     private ShopUI shopUI;
     private RigidBodyControl physics;
     private static final float INTERACT_RANGE = 3.5f;
@@ -43,24 +43,24 @@ public class NPC implements Interactable {
      * Build the NPC geometry and physics in the world.
      */
     public void build(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState) {
-        // Create a simple cylinder to represent the NPC
+        // Bare-bones cylinder standing in for the NPC body
         Cylinder npcBody = new Cylinder(16, 32, 0.4f, 1.8f, true);
         Geometry npcGeo = new Geometry("NPCGeometry", npcBody);
 
         Material npcMat = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
         npcMat.setBoolean("UseMaterialColors", true);
-        npcMat.setColor("Diffuse", new ColorRGBA(0.3f, 0.7f, 0.4f, 1f)); // greenish
+        npcMat.setColor("Diffuse", new ColorRGBA(0.3f, 0.7f, 0.4f, 1f)); // greenish outfit
         npcMat.setColor("Specular", ColorRGBA.White);
         npcMat.setFloat("Shininess", 16f);
         npcGeo.setMaterial(npcMat);
-        // jME3's Cylinder runs its height along the Z axis, so it lies flat by
-        // default. Rotate 90 degrees about X to stand the body upright.
+        // jME3's Cylinder sizes its height along Z, so it spawns lying flat.
+        // Rotate 90 degrees about X to stand the body upright.
         npcGeo.rotate(FastMath.HALF_PI, 0f, 0f);
 
         npcGeo.setLocalTranslation(0, 0.9f, 0);
         node.attachChild(npcGeo);
 
-        // Add a head (another cylinder on top)
+        // A head — just a smaller cylinder stacked on top
         Cylinder head = new Cylinder(16, 32, 0.3f, 0.5f, true);
         Geometry headGeo = new Geometry("HeadGeometry", head);
         headGeo.setMaterial(npcMat);
@@ -70,7 +70,7 @@ public class NPC implements Interactable {
 
         parentNode.attachChild(node);
 
-        // Add physics (static, non-moving)
+        // Static body so the NPC can't be shoved around
         CapsuleCollisionShape shape = new CapsuleCollisionShape(0.4f, 1.8f);
         physics = new RigidBodyControl(shape, 0);
         physics.setPhysicsLocation(position.add(0, 0.9f, 0));
@@ -99,7 +99,7 @@ public class NPC implements Interactable {
     public void interact() {
         System.out.println("Interacted with NPC: " + name);
 
-        // Show shop UI
+        // Hand off to the shop UI if one's been attached
         if (shopUI != null) {
             shopUI.show(this);
         }

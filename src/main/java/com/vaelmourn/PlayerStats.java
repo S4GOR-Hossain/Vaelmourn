@@ -8,27 +8,27 @@ public class PlayerStats {
 
     private String playerName = "Vael";
 
-    // Health
+    // health pool
     private float maxHealth = 100f;
     private float health = maxHealth;
 
-    // Mana
+    // mana pool
     private float maxMana = 100f;
     private float mana = maxMana;
 
-    // Experience / level
+    // xp and leveling
     private int level = 1;
     private float experience = 0f;
     private float experienceToNext = 100f;
 
-    // Currency
+    // currency
     private int soulDust = 0;
 
-    // Derived combat / movement stats (surfaced in the stats bar)
-    private float averageDamage = 8f;    // average damage output
-    private float armorPoints = 10f;     // total shield / armor points
-    private float movementSpeed = 5f;    // movement speed
-    private float attackSpeed = 1.2f;    // average attack speed
+    // combat / movement stats that the stats bar reads
+    private float averageDamage = 8f;    // rough damage per hit
+    private float armorPoints = 10f;     // shield + armor combined
+    private float movementSpeed = 5f;    // walking speed
+    private float attackSpeed = 1.2f;    // swings per second, roughly
 
     public float getHealth() {
         return health;

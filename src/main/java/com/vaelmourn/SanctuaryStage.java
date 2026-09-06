@@ -50,7 +50,7 @@ public class SanctuaryStage implements Stage {
     @Override
     public List<EnemyController> spawnEnemies(AssetManager assetManager, Node parentNode,
                                                BulletAppState bulletAppState, int loopCount) {
-        return new ArrayList<>(); // No enemies in Sanctuary
+        return new ArrayList<>(); // Sanctuary stays peaceful — no enemies here
     }
 
     @Override
@@ -60,7 +60,7 @@ public class SanctuaryStage implements Stage {
 
     @Override
     public ColorRGBA getSkyColor() {
-        return new ColorRGBA(0.55f, 0.65f, 0.75f, 1f); // Warm golden hour
+        return new ColorRGBA(0.55f, 0.65f, 0.75f, 1f); // warm golden-hour light
     }
 
     @Override
@@ -94,8 +94,8 @@ public class SanctuaryStage implements Stage {
         Material mat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
         mat.setColor("Color", new ColorRGBA(0.6f, 0.8f, 0.6f, 1f));
         ground.setMaterial(mat);
-        // Align the visual ground top (y=0) with the physics collider top (y=0) so
-        // the player and scenery sit ON the surface instead of clipping into it.
+        // Line the visual ground top (y=0) up with the collider top (y=0) so the
+        // player and scenery rest ON the surface instead of sinking into it.
         ground.setLocalTranslation(0, -0.5f, 0);
         stageNode.attachChild(ground);
 
@@ -131,7 +131,7 @@ public class SanctuaryStage implements Stage {
     private void buildHealingFountain(AssetManager assetManager) {
         Node fountainNode = new Node("HealingFountain");
 
-        // Pedestal
+        // Pedestal block
         Box pedestalBox = new Box(1.5f, 2f, 1.5f);
         Geometry pedestal = new Geometry("FountainPedestal", pedestalBox);
         Material pedestalMat = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
@@ -140,7 +140,7 @@ public class SanctuaryStage implements Stage {
         pedestal.setMaterial(pedestalMat);
         fountainNode.attachChild(pedestal);
 
-        // Glowing water sphere on top
+        // Glowing water globe floating on top
         com.jme3.scene.shape.Sphere waterSphere = new com.jme3.scene.shape.Sphere(32, 32, 1f);
         Geometry water = new Geometry("FountainWater", waterSphere);
         Material waterMat = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
@@ -158,12 +158,12 @@ public class SanctuaryStage implements Stage {
     private void buildShop(AssetManager assetManager) {
         Node shopNode = new Node("Shop");
 
-        // Two stall boxes
+        // Two simple wooden stalls
         for (int i = 0; i < 2; i++) {
             Box stallBox = new Box(2f, 1.5f, 2f);
             Geometry stall = new Geometry("Stall_" + i, stallBox);
             Material stallMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-            stallMat.setColor("Color", new ColorRGBA(0.6f, 0.5f, 0.3f, 1f)); // brown
+            stallMat.setColor("Color", new ColorRGBA(0.6f, 0.5f, 0.3f, 1f)); // brown wood
             stall.setMaterial(stallMat);
             stall.setLocalTranslation(8f + i * 5f, 1.5f, 0);
             shopNode.attachChild(stall);
@@ -176,12 +176,12 @@ public class SanctuaryStage implements Stage {
     private void buildChests(AssetManager assetManager) {
         Node chestNode = new Node("ChestArea");
 
-        // Three treasure chests
+        // Spawn three chests in a row
         for (int i = 0; i < 3; i++) {
             Box chestBox = new Box(1f, 1f, 1f);
             Geometry chest = new Geometry("Chest_" + i, chestBox);
             Material chestMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-            chestMat.setColor("Color", new ColorRGBA(0.9f, 0.8f, 0.2f, 1f)); // golden
+            chestMat.setColor("Color", new ColorRGBA(0.9f, 0.8f, 0.2f, 1f)); // shiny gold
             chest.setMaterial(chestMat);
             chest.setLocalTranslation(-10f - i * 4f, 1f, 0);
             chestNode.attachChild(chest);

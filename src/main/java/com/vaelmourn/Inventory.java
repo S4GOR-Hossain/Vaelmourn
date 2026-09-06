@@ -39,7 +39,7 @@ public class Inventory {
         for (int i = 0; i < TOOLBAR_SIZE; i++) toolbar[i] = new Slot(null, 0);
     }
 
-    // ---- Grid access ----
+    // ---- grid helpers ----
 
     public Slot getGridSlot(int index) {
         return grid[index];
@@ -53,7 +53,7 @@ public class Inventory {
         return grid;
     }
 
-    // ---- Equipment access ----
+    // ---- equipment helpers ----
 
     public Slot getEquipSlot(EquipSlot slot) {
         return equipment[slot.ordinal()];
@@ -63,7 +63,7 @@ public class Inventory {
         return equipment;
     }
 
-    // ---- Toolbar access ----
+    // ---- toolbar helpers ----
 
     public Slot getToolbarSlot(int index) {
         return toolbar[index];
@@ -73,7 +73,7 @@ public class Inventory {
         return toolbar;
     }
 
-    // ---- Adding items ----
+    // ---- putting items away ----
 
     /**
      * Tries to add an item to the grid, stacking where possible.
@@ -86,7 +86,7 @@ public class Inventory {
 
         int remaining = count;
 
-        // 1. Stack onto existing matching stacks (if stackable)
+        // 1. Top up matching stacks first (for stackable items)
         if (item.maxStack > 1) {
             for (Slot s : grid) {
                 if (s.isEmpty() || !s.itemId.equals(itemId)) continue;
@@ -99,7 +99,7 @@ public class Inventory {
             }
         }
 
-        // 2. Fill empty slots
+        // 2. Then dump the leftovers into empty slots
         for (Slot s : grid) {
             if (!s.isEmpty()) continue;
             int placed = Math.min(item.maxStack, remaining);
@@ -156,7 +156,7 @@ public class Inventory {
             }
         }
 
-        // swap contents
+        // otherwise, straight swap the two slots
         String tmpId = to.itemId;
         int tmpCount = to.count;
         to.itemId = from.itemId;

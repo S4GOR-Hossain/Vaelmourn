@@ -109,7 +109,7 @@ public class DarkwoodStage implements Stage {
         Box groundBox = new Box(60, 0.5f, 60);
         Geometry ground = new Geometry("DarkwoodGround", groundBox);
         Material mat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-        mat.setColor("Color", new ColorRGBA(0.2f, 0.3f, 0.15f, 1f)); // dark green
+        mat.setColor("Color", new ColorRGBA(0.2f, 0.3f, 0.15f, 1f)); // dark mossy green
         ground.setMaterial(mat);
         ground.setLocalTranslation(0, -0.5f, 0);
         stageNode.attachChild(ground);
@@ -145,9 +145,9 @@ public class DarkwoodStage implements Stage {
     private void buildDecoration(AssetManager assetManager, BulletAppState bulletAppState) {
         Random rand = new Random(99);
 
-        // Dark forest — use a handful of the tree-pack models (only 3-4 types, repeated
-        // randomly so no single tree stands out). The pack models carry their own
-        // colormaps; the stage's dark ambient light keeps the gloomy vibe.
+        // Dark forest: only pull from a handful of tree-pack models (3-4 types,
+        // repeated randomly) so no single tree stands out. They carry their own
+        // colormaps, and the dark ambient light does the rest for the vibe.
         String[] treeModels = {
                 "Models/Environment/Forest/tree_pack_02.glb",
                 "Models/Environment/Forest/tree_pack_07.glb",
@@ -179,9 +179,9 @@ public class DarkwoodStage implements Stage {
         float scale = (3.5f + rand.nextFloat() * 1.2f) * 0.8f;
         tree.setLocalScale(scale);
 
-        // The pack models are pivoted at their vertical center, so lift each tree
-        // until its base rests on the ground instead of half-burying it. Grab the
-        // scaled bounds too - they drive the hitbox size below.
+        // Pack models pivot around their vertical center, so lift each tree until
+        // its base touches the ground instead of half-burying it. Grab the scaled
+        // bounds too — they drive the hitbox size below.
         tree.updateModelBound();
         Vector3f extent = new Vector3f();
         float lift = 0f;
@@ -192,9 +192,9 @@ public class DarkwoodStage implements Stage {
 
         tree.setLocalTranslation(x, lift, z);
 
-        // Hitbox at the bark of the tree: a narrow box the width of the trunk that
-        // spans the lower part of the tree where the trunk actually is. Sized from
-        // the scaled bounds so it stays proportional to each model.
+        // Trunk hitbox: a narrow box as wide as the trunk, spanning the lower part of
+        // the tree where the trunk actually sits. Sizes come from the scaled bounds
+        // so it stays proportional to whichever model got picked.
         float trunkRadius = Math.max(0.5f, Math.min(1.3f, Math.max(extent.x, extent.z) * 0.2f));
         float treeHeight = 2f * extent.y;
         float collarHeight = Math.max(2.5f, treeHeight * 0.4f);

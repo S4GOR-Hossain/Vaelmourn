@@ -74,7 +74,7 @@ public class AshenWastesStage implements Stage {
 
     @Override
     public ColorRGBA getSkyColor() {
-        return new ColorRGBA(0.6f, 0.35f, 0.15f, 1f); // orange-red haze
+        return new ColorRGBA(0.6f, 0.35f, 0.15f, 1f); // orange-red haze from the burn-off
     }
 
     @Override
@@ -84,7 +84,7 @@ public class AshenWastesStage implements Stage {
 
     @Override
     public Vector3f getSunDirection() {
-        return new Vector3f(-0.2f, -1f, -0.1f).normalizeLocal(); // harsh overhead
+        return new Vector3f(-0.2f, -1f, -0.1f).normalizeLocal(); // almost straight overhead, harsh shadows
     }
 
     @Override
@@ -106,7 +106,7 @@ public class AshenWastesStage implements Stage {
         Box groundBox = new Box(55, 0.5f, 55);
         Geometry ground = new Geometry("AshenWastesGround", groundBox);
         Material mat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-        mat.setColor("Color", new ColorRGBA(0.45f, 0.30f, 0.18f, 1f)); // orange-brown
+        mat.setColor("Color", new ColorRGBA(0.45f, 0.30f, 0.18f, 1f)); // orange-brown scorched dirt
         ground.setMaterial(mat);
         ground.setLocalTranslation(0, -0.5f, 0);
         stageNode.attachChild(ground);
@@ -143,7 +143,7 @@ public class AshenWastesStage implements Stage {
     private void buildDecoration(AssetManager assetManager, BulletAppState bulletAppState) {
         Random rand = new Random(100);
 
-        // Lava pools
+        // Lava pools dotted across the field
         for (int i = 0; i < 12; i++) {
             float x = (rand.nextFloat() - 0.5f) * 90f;
             float z = (rand.nextFloat() - 0.5f) * 90f;
@@ -157,8 +157,8 @@ public class AshenWastesStage implements Stage {
             stageNode.attachChild(lava);
         }
 
-        // Scatter real stone models (from the Forest pack) as rocky outcrops,
-        // replacing the box "pillars". No trees — this biome is barren.
+        // Use the Forest pack's real stone models as rocky outcrops instead of
+        // boxy "pillars". No trees here — this biome is barren.
         String[] stoneModels = {
                 "Models/Environment/Forest/stone_tallA.glb",
                 "Models/Environment/Forest/stone_tallB.glb",
@@ -190,8 +190,8 @@ public class AshenWastesStage implements Stage {
 
         stageNode.attachChild(stone);
 
-        // Approximate the rock footprint with a box collider so the player can't
-        // walk straight through these rocky outcrops.
+        // Rough box collider matching each rock's footprint so the player
+        // can't just walk straight through the outcrops.
         BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(size * 0.35f, size * 0.4f, size * 0.35f));
         RigidBodyControl physics = new RigidBodyControl(shape, 0);
         physics.setPhysicsLocation(new Vector3f(x, size * 0.35f, z));
