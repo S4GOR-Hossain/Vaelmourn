@@ -36,11 +36,11 @@ public final class ItemRegistry {
         add(new Item("leather", "Leather", Item.Category.MATERIAL, new ColorRGBA(0.55f, 0.4f, 0.3f, 1f), 99, 2, null, "Textures/Items/leather.png"));
 
         // Armor
-        add(new Item("iron_helmet", "Iron Helmet", Item.Category.HELMET, new ColorRGBA(0.62f, 0.66f, 0.72f, 1f), 1, 25, null));
-        add(new Item("iron_chestplate", "Iron Chestplate", Item.Category.CHESTPLATE, new ColorRGBA(0.62f, 0.66f, 0.72f, 1f), 1, 35, null));
+        add(new Item("iron_helmet", "Iron Helmet", Item.Category.HELMET, new ColorRGBA(0.62f, 0.66f, 0.72f, 1f), 1, 25, null, "Textures/Items/iron_helmet.png"));
+        add(new Item("iron_chestplate", "Iron Chestplate", Item.Category.CHESTPLATE, new ColorRGBA(0.62f, 0.66f, 0.72f, 1f), 1, 35, null, "Textures/Items/iron_chestplate.png"));
         add(new Item("iron_leggings", "Iron Leggings", Item.Category.LEGGINGS, new ColorRGBA(0.62f, 0.66f, 0.72f, 1f), 1, 30, null));
-        add(new Item("iron_boots", "Iron Boots", Item.Category.BOOTS, new ColorRGBA(0.62f, 0.66f, 0.72f, 1f), 1, 20, null));
-        add(new Item("kite_shield", "Kite Shield", Item.Category.SHIELD, new ColorRGBA(0.55f, 0.5f, 0.45f, 1f), 1, 25, "Models/Weapons/Special/kite_shield.glb"));
+        add(new Item("iron_boots", "Iron Boots", Item.Category.BOOTS, new ColorRGBA(0.62f, 0.66f, 0.72f, 1f), 1, 20, null, "Textures/Items/iron_boot.png"));
+        add(new Item("kite_shield", "Kite Shield", Item.Category.SHIELD, new ColorRGBA(0.55f, 0.5f, 0.45f, 1f), 1, 25, "Models/Weapons/Special/kite_shield.glb", "Textures/Items/iron_shield.png"));
     }
 
     public static void add(Item item) {
