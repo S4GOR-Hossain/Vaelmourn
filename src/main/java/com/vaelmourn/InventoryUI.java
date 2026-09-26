@@ -158,6 +158,21 @@ public class InventoryUI {
     private Spatial previewModel;
     private ViewPort previewView;
 
+    // ---- right-click action menu ----
+    private static final int MAX_MENU_OPTIONS = 3;
+    private final Node menuNode = new Node("ContextMenu");
+    private Geometry menuBg;
+    private final Geometry[] menuRows = new Geometry[MAX_MENU_OPTIONS];
+    private final BitmapText[] menuLabels = new BitmapText[MAX_MENU_OPTIONS];
+    private boolean menuOpen = false;
+    private Slot menuSlotData;
+    private float menuSlotX, menuSlotY;   // anchor slot rect, in screen pixels
+    private int menuOptionCount = 0;
+    private float menuRowH, menuRowW;
+    private float menuX, menuY;
+    private java.util.function.Consumer<String> weaponEquipHandler;
+    private final float screenW, screenH;
+
     private boolean visible = false;
     private boolean xpFractionLogged = false;
 
@@ -173,6 +188,8 @@ public class InventoryUI {
 
         this.sx = screenW / 1920f;
         this.sy = screenH / 1080f;
+        this.screenW = screenW;
+        this.screenH = screenH;
 
         font = assetManager.loadFont("Interface/Fonts/Default.fnt");
 
@@ -185,6 +202,7 @@ public class InventoryUI {
         buildPreviewFrame();       // draws the border on top of the rendered preview
         buildTooltip();
         buildGhost();
+        buildContextMenu();
 
         setVisible(false);
     }
@@ -196,6 +214,7 @@ public class InventoryUI {
         hudNode.setCullHint(visible ? Spatial.CullHint.Never : Spatial.CullHint.Always);
         if (!visible) {
             clearSelection();
+            closeMenu();
         }
     }
 
@@ -203,13 +222,25 @@ public class InventoryUI {
         return visible;
     }
 
+    /** Lets the world re-equip the combat weapon whenever "Use" hits a sword/bow. */
+    public void setWeaponEquipHandler(java.util.function.Consumer<String> handler) {
+        this.weaponEquipHandler = handler;
+    }
+
     public Node getNode() {
         return hudNode;
     }
 
     public void handlePrimaryClick() {
-        if (!visible) return;
         Vector2f cur = inputManager.getCursorPosition();
+        // a right-click menu can be up even while the inventory overlay is hidden
+        if (menuOpen) {
+            if (handleMenuClick(cur.x, cur.y)) return;
+            closeMenu();
+            if (!visible) return; // outside the menu while hidden = just dismiss
+        }
+        if (!visible) return;
+
         SlotView hit = slotAt(cur.x, cur.y);
 
         if (hit == null) {
@@ -229,14 +260,57 @@ public class InventoryUI {
         tryMove(selected, hit);
     }
 
-    public void update(float tpf, Camera cam) {
+    /** Opens the right-click action menu for whatever item the cursor is over. */
+    public void handleSecondaryClick() {
         if (!visible) return;
-        updatePreview(cam);
-        updatePointer();
-        refreshIdentityBars();
-        refreshSoulDust();
-        refreshStats();
-        refreshSlots();
+        if (selected != null) return; // never open a menu mid-drag
+
+        Vector2f cur = inputManager.getCursorPosition();
+        SlotView hit = slotAt(cur.x, cur.y);
+
+        // right-click on the already-open menu's slot just toggles it shut
+        if (menuOpen && hit != null && hit.data == menuSlotData) {
+            closeMenu();
+            return;
+        }
+        closeMenu();
+        if (hit == null || hit.data.isEmpty()) return;
+        openMenu(hit.data, hit.x, hit.y);
+    }
+
+    /** Called when the inventory is closed: right-click on the world toolbar slot. */
+    public void openMenuForSlot(Slot data, float x, float y) {
+        if (selected != null) return;
+        if (menuOpen && data == menuSlotData) {
+            closeMenu();
+            return;
+        }
+        closeMenu();
+        openMenu(data, x, y);
+    }
+
+    public boolean isContextMenuOpen() {
+        return menuOpen;
+    }
+
+    /** Dismisses an open context menu (used when closing it from the world). */
+    public void closeContextMenu() {
+        closeMenu();
+    }
+
+    public void update(float tpf, Camera cam) {
+        if (!visible && !menuOpen) return;
+        if (visible) {
+            updatePreview(cam);
+            updatePointer();
+            refreshIdentityBars();
+            refreshSoulDust();
+            refreshStats();
+            refreshSlots();
+        } else if (menuOpen) {
+            // no inventory open, but a right-click menu is up on a toolbar slot
+            updateMenuHover(inputManager.getCursorPosition());
+        }
     }
 
     // ================= layout =================
@@ -627,9 +701,196 @@ public class InventoryUI {
         ghostNode.setCullHint(Spatial.CullHint.Always);
     }
 
+    // ================= right-click action menu =================
+
+    private void buildContextMenu() {
+        menuRowH = 26f * sy;
+        menuRowW = 120f * sx;
+        menuNode.setCullHint(Spatial.CullHint.Always);
+        // a unit grey panel — openMenu scales it to fit however many options fit
+        menuBg = quad(0f, 0f, 1f, 1f, new ColorRGBA(0.32f, 0.33f, 0.36f, 0.96f));
+        menuNode.attachChild(menuBg);
+        for (int i = 0; i < MAX_MENU_OPTIONS; i++) {
+            // only the hovered row is ever shown, brightened to stand off the panel
+            menuRows[i] = quad(0f, 0f, menuRowW, menuRowH, new ColorRGBA(0.55f, 0.57f, 0.63f, 0.95f));
+            menuRows[i].setCullHint(Spatial.CullHint.Always);
+            menuNode.attachChild(menuRows[i]);
+            menuLabels[i] = addText(menuNode, "", 0f, 0f, 16f * sy, new ColorRGBA(0.96f, 0.97f, 0.98f, 1f));
+            menuLabels[i].setCullHint(Spatial.CullHint.Always);
+        }
+        hudNode.attachChild(menuNode);
+    }
+
+    /** "Use" only makes sense for stuff we can actually do something with. */
+    private boolean canUse(Item item) {
+        return switch (item.getGroup()) {
+            case CONSUMABLE, WEAPON, EQUIPMENT -> true;
+            default -> false;
+        };
+    }
+
+    private void openMenu(Slot data, float slotX, float slotY) {
+        if (data == null || data.isEmpty()) return;
+        Item item = data.getItem();
+        if (item == null) return;
+
+        menuSlotData = data;
+        menuSlotX = slotX;
+        menuSlotY = slotY;
+        menuOptionCount = 0;
+
+        boolean hasUse = canUse(item);
+        if (hasUse) setMenuOption(menuOptionCount++, "Use");
+        setMenuOption(menuOptionCount++, "Drop");
+        if (data.count > 1) setMenuOption(menuOptionCount++, "Drop All");
+
+        menuBg.setLocalScale(menuRowW, menuOptionCount * menuRowH, 1f);
+        positionMenu(slotX, slotY);
+        menuOpen = true;
+        // make everything visible again (openMenu != closeMenu!), then draw the
+        // menu above the overlay by attaching to its parent (the gui node)
+        menuNode.setCullHint(Spatial.CullHint.Never);
+        Node parent = hudNode.getParent();
+        if (parent != null) {
+            parent.attachChild(menuNode);
+        } else {
+            hudNode.attachChild(menuNode);
+        }
+    }
+
+    private void setMenuOption(int i, String label) {
+        BitmapText t = menuLabels[i];
+        t.setText(label);
+        float lh = t.getLineHeight();
+        t.setLocalTranslation(8f * sx, i * menuRowH + menuRowH / 2f + lh / 2f, 0f);
+        t.setCullHint(Spatial.CullHint.Never);
+        menuRows[i].setLocalTranslation(0f, i * menuRowH, 0f);
+    }
+
+    /** Anchors the menu beside the slot, flipping left when it'd clip off-screen. */
+    private void positionMenu(float slotX, float slotY) {
+        float mw = menuRowW;
+        float mh = menuOptionCount * menuRowH;
+        float mx = slotX + slot + 6f * sx;
+        float my = slotY + slot - mh;
+        if (mx + mw > screenW - 4f) mx = slotX - mw - 6f * sx;
+        if (my < 4f) my = 4f;
+        if (my + mh > screenH - 4f) my = screenH - 4f - mh;
+        menuX = mx;
+        menuY = my;
+        menuNode.setLocalTranslation(mx, my, 0f);
+    }
+
+    private void closeMenu() {
+        menuOpen = false;
+        menuSlotData = null;
+        menuNode.setCullHint(Spatial.CullHint.Always);
+        for (int i = 0; i < MAX_MENU_OPTIONS; i++) {
+            menuLabels[i].setCullHint(Spatial.CullHint.Always);
+            menuRows[i].setCullHint(Spatial.CullHint.Always);
+        }
+    }
+
+    private void updateMenuHover(Vector2f cur) {
+        for (int i = 0; i < menuOptionCount; i++) {
+            boolean inside = cur.x >= menuX && cur.x <= menuX + menuRowW
+                    && cur.y >= menuY + i * menuRowH && cur.y <= menuY + (i + 1) * menuRowH;
+            menuRows[i].setCullHint(inside ? Spatial.CullHint.Never : Spatial.CullHint.Always);
+        }
+    }
+
+    /** Returns true if the click landed on a menu option (and did its thing). */
+    private boolean handleMenuClick(float px_, float py_) {
+        if (!menuOpen) return false;
+        for (int i = 0; i < menuOptionCount; i++) {
+            if (px_ >= menuX && px_ <= menuX + menuRowW
+                    && py_ >= menuY + i * menuRowH && py_ <= menuY + (i + 1) * menuRowH) {
+                triggerMenuOption(i);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void triggerMenuOption(int i) {
+        Item item = menuSlotData.getItem();
+        if (item == null) return;
+        boolean hasUse = canUse(item);
+        if (hasUse) {
+            switch (i) {
+                case 0 -> useItem(menuSlotData);
+                case 1 -> dropItem(menuSlotData);
+                default -> dropAll(menuSlotData);
+            }
+        } else {
+            // no "Use" option: Drop is the first row, Drop All the second
+            if (i == 0) dropItem(menuSlotData);
+            else dropAll(menuSlotData);
+        }
+    }
+
+    private void useItem(Slot v) {
+        Item item = v.getItem();
+        if (item == null) return;
+        switch (item.getGroup()) {
+            case CONSUMABLE -> {
+                // drink potions; consume() returns false for anything inert
+                if (stats != null && stats.consume(item)) consumeCount(v, 1);
+            }
+            case WEAPON -> equipWeapon(v, item);
+            case EQUIPMENT -> equipArmor(v, item);
+            default -> { }
+        }
+    }
+
+    /** Equip a weapon: put it in toolbar slot 0 and hand it to the combat controller. */
+    private void equipWeapon(Slot v, Item item) {
+        Slot weaponSlot = inventory.getToolbarSlot(0);
+        if (v != weaponSlot && !item.id.equals(weaponSlot.itemId)) {
+            inventory.swapMove(v, weaponSlot);
+        }
+        if (weaponEquipHandler != null) weaponEquipHandler.accept(item.id);
+    }
+
+    /** Equip armor into the matching equipment slot (swap), if it isn't worn already. */
+    private void equipArmor(Slot v, Item item) {
+        Inventory.EquipSlot es = equipSlotFor(item.category);
+        if (es == null) return;
+        Slot target = inventory.getEquipSlot(es);
+        if (target == v) return;
+        inventory.swapMove(v, target);
+    }
+
+    private void dropItem(Slot v) {
+        v.count--;
+        if (v.count <= 0) v.clear();
+    }
+
+    private void dropAll(Slot v) {
+        v.clear();
+    }
+
+    private void consumeCount(Slot v, int amount) {
+        v.count -= amount;
+        if (v.count <= 0) v.clear();
+    }
+
+    private Inventory.EquipSlot equipSlotFor(Item.Category cat) {
+        try {
+            return Inventory.EquipSlot.valueOf(cat.name());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     private void updatePointer() {
         Vector2f cur = inputManager.getCursorPosition();
         hovered = slotAt(cur.x, cur.y);
+
+        if (menuOpen) {
+            updateMenuHover(cur);
+            return; // with the menu up, suppress tooltip + drag ghost clutter
+        }
 
         float gs = slot - 4f;
         if (selected != null && !selected.data.isEmpty()) {
@@ -660,18 +921,63 @@ public class InventoryUI {
         if (hovered != null && !hovered.data.isEmpty()) {
             Item item = hovered.data.getItem();
             tooltipTitle.setText(item.name);
-            tooltipBody.setText(categoryLabel(item.category)
-                    + (item.maxStack > 1 ? "  |  x" + hovered.data.count : ""));
-            float tw = Math.max(tooltipTitle.getLineWidth(), tooltipBody.getLineWidth()) + 18f;
-            float th = 44f * sy;
+            tooltipBody.setText(tooltipBodyText(item, hovered));
+            float tw = Math.max(tooltipTitle.getLineWidth(), tooltipBody.getLineWidth()) + 20f;
+            int lines = tooltipBody.getLineCount();
+            float th = Math.max(44f * sy, 20f * sy + lines * 14f * sy);
             tooltipNode.setLocalTranslation(cur.x + 14f, cur.y + 6f, 0f);
             tooltipBg.setLocalScale(tw, th, 1f);
             tooltipTitle.setLocalTranslation(5f, th - 18f * sy, 0f);
-            tooltipBody.setLocalTranslation(5f, th - 36f * sy, 0f);
+            tooltipBody.setLocalTranslation(5f, th - 18f * sy - 4f, 0f);
             tooltipNode.setCullHint(Spatial.CullHint.Never);
         } else {
             tooltipNode.setCullHint(Spatial.CullHint.Always);
         }
+    }
+
+    /** description, stat bonuses, potion effect, category and equipped state */
+    private String tooltipBodyText(Item item, SlotView view) {
+        StringBuilder body = new StringBuilder();
+        if (item.description != null && !item.description.isEmpty()) {
+            body.append(item.description);
+        }
+        if (item.defenseBonus > 0f) {
+            body.append("\nDefense +").append((int) item.defenseBonus);
+        }
+        if (item.moveSpeedBonus > 0f) {
+            body.append("\nMove speed +").append(item.moveSpeedBonus);
+        }
+        if (item.effect != Item.Effect.NONE) {
+            body.append("\nEffect: ").append(effectLabel(item));
+        }
+        body.append("\n").append(categoryLabel(item.category));
+        if (item.maxStack > 1) {
+            body.append("  |  x").append(view.data.count);
+        }
+        if (isEquipped(item)) {
+            body.append("  |  (EQUIPPED)");
+        }
+        return body.toString();
+    }
+
+    private String effectLabel(Item item) {
+        return switch (item.effect) {
+            case HEAL_INSTANT -> "Heal " + (int) item.power + " instantly";
+            case REGEN -> "Regen " + (int) item.power + " HP/s for " + (int) item.duration + "s";
+            case SPEED -> "Speed +" + (int) (item.power * 100f) + "% for " + (int) item.duration + "s";
+            case STRENGTH -> "Damage +" + (int) (item.power * 100f) + "% for " + (int) item.duration + "s";
+            case CRIT -> "Crit chance for " + (int) item.duration + "s";
+            default -> "";
+        };
+    }
+
+    /** true when a copy of this item is currently worn in an equipment slot */
+    private boolean isEquipped(Item item) {
+        if (inventory == null) return false;
+        for (Slot s : inventory.getEquipment()) {
+            if (!s.isEmpty() && s.itemId.equals(item.id)) return true;
+        }
+        return false;
     }
 
     private String categoryLabel(Item.Category c) {
@@ -707,9 +1013,9 @@ public class InventoryUI {
         return switch (target.kind) {
             case GRID, TRASH -> true;
             case TOOLBAR ->
-                    item.category == Item.Category.WEAPON
-                            || item.category == Item.Category.POTION
-                            || item.category == Item.Category.KEY;
+                    item.getGroup() == Item.Group.WEAPON
+                            || item.getGroup() == Item.Group.CONSUMABLE
+                            || item.getGroup() == Item.Group.KEY;
             case EQUIPMENT -> matchEquip(item.category, target.equipSlot);
         };
     }

@@ -80,6 +80,11 @@ public class StageManager {
 
         // tear down the stage we're leaving
         currentStage.cleanup(rootNode, bulletAppState);
+        // detach leftover enemies and their effect nodes so nothing lingers
+        // into the next biome (emitters are scene nodes, not stage nodes)
+        for (EnemyController enemy : activeEnemies) {
+            enemy.cleanup(bulletAppState);
+        }
         activeEnemies.clear();
         if (portalNode != null) {
             portalNode.removeFromParent();
@@ -123,9 +128,11 @@ public class StageManager {
             enemy.update(tpf, playerPos, playerStats);
         }
 
-        // sweep out any enemies that croaked this frame
+        // sweep out any enemies that croaked this frame — only once their
+        // death effect actually finished playing (canRemove), not the frame
+        // they died, or the death pop would never be seen
         activeEnemies.removeIf(e -> {
-            if (e.isDead()) {
+            if (e.canRemove()) {
                 e.cleanup(bulletAppState);
                 if (playerStats != null) {
                     playerStats.addSoulDust(10); // TODO: this reward should probably scale with difficulty

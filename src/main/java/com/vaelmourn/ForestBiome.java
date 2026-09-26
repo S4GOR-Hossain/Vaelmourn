@@ -31,6 +31,7 @@ import com.jme3.font.BitmapText;
 import com.jme3.material.Material;
 import com.jme3.math.ColorRGBA;
 import com.jme3.math.FastMath;
+import com.jme3.math.Vector2f;
 import com.jme3.math.Vector3f;
 import com.jme3.renderer.Camera;
 import com.jme3.scene.Geometry;
@@ -52,6 +53,8 @@ import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Random;
 import java.util.ArrayList;
 import java.util.List;
@@ -66,7 +69,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
     private boolean left, right, forward, backward;
     private final Vector3f walkDirection = new Vector3f();
-    private final float MOVE_SPEED = 12f;
 
     // --- Dodge state ---
     private boolean dodging = false;
@@ -104,6 +106,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     // --- Combat integration ---
     private Weapons weapons;
     private CombatController combat;
+    private CombatEffects effects;
 
     // --- Inventory / HUD integration ---
     private Inventory inventory;
@@ -119,9 +122,36 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     private Geometry hudHpFill;
     private BitmapText hudHpText;
     private BitmapText hudEnemiesText;
+    private Geometry hudCooldownFill;
     private float hudSx = 1f;
     private float hudSy = 1f;
     private static final float HUD_HP_FULL_WIDTH = 252f; // the fill bar's inner width at 1080p
+
+    // potion buff timers, drawn as draining colored pills above the enemy counter
+    private final Geometry[] hudBuffTracks = new Geometry[PlayerStats.Buff.values().length];
+    private final Geometry[] hudBuffFills = new Geometry[PlayerStats.Buff.values().length];
+    private final BitmapText[] hudBuffSecs = new BitmapText[PlayerStats.Buff.values().length];
+    private static final ColorRGBA[] HUD_BUFF_COLORS = {
+            new ColorRGBA(0.35f, 0.85f, 1.00f, 1f),  // Speed
+            new ColorRGBA(1.00f, 0.50f, 0.15f, 1f),  // Strength
+            new ColorRGBA(1.00f, 0.85f, 0.20f, 1f),  // Critical
+            new ColorRGBA(0.35f, 0.90f, 0.40f, 1f),  // Regen
+    };
+
+    // --- colored particle aura hugging the player while a buff is running ---
+    private PlayerBuffEffects buffEffects;
+
+    // --- transparent quick-use toolbar (1-5), bottom-center of the screen ---
+    private final Geometry[] hudToolbarSlots = new Geometry[Inventory.TOOLBAR_SIZE];
+    private final Geometry[] hudToolbarBorders = new Geometry[Inventory.TOOLBAR_SIZE];
+    private final Geometry[] hudToolbarIcons = new Geometry[Inventory.TOOLBAR_SIZE];
+    private final Geometry[] hudToolbarIconsTex = new Geometry[Inventory.TOOLBAR_SIZE];
+    private final BitmapText[] hudToolbarCounts = new BitmapText[Inventory.TOOLBAR_SIZE];
+    private final BitmapText[] hudToolbarNumbers = new BitmapText[Inventory.TOOLBAR_SIZE];
+    private final Map<String, Texture> hudIconCache = new HashMap<>();
+    private float hudToolbarLeft, hudToolbarBottom, hudToolbarSlot, hudToolbarGap;
+    private boolean hudCursorShown = false;
+    private boolean hudToolbarBuilt = false;
 
     private Node forestZoneNode;
 
@@ -275,17 +305,42 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         combat = new CombatController(cam, playerNode, animComposer, weapons);
         combat.equip("iron_sword"); // iron sword is the default loadout
 
+        // combat feel: damage numbers, shake, sounds, player flash
+        effects = new CombatEffects(assetManager, rootNode, playerNode);
+        combat.setEffects(effects);
+        // potion buff cosmetics: color-tinted particle aura on the player model
+        buffEffects = new PlayerBuffEffects(assetManager, playerNode);
+
         // Inventory + HUD
         ItemRegistry.registerDefaults();
         inventory = new Inventory();
         playerStats = new PlayerStats();
+        // whenever the player actually loses health, trigger the hurt flash + shake + sound
+        playerStats.setDamageListener((amount, currentHealth) -> {
+            if (effects != null) effects.onPlayerDamaged();
+        });
+        // the stat system reads equipped gear live and the combat controller
+        // converts potion buffs into effective damage/attack speed
+        playerStats.setInventory(inventory);
+        combat.setPlayerStats(playerStats);
+        combat.equip("iron_sword"); // now that stats exist, push the default sword's values in
 
         // Throw in some starter items so the inventory UI actually has stuff in it.
         inventory.addItem("health_potion", 6);
-        inventory.addItem("mana_potion", 3);
+        inventory.addItem("speed_potion", 3);
+        inventory.addItem("strength_potion", 2);
+        inventory.addItem("critical_potion", 2);
+        inventory.addItem("regen_potion", 3);
         inventory.addItem("dungeon_key", 2);
         inventory.addItem("iron_ingot", 12);
+        inventory.addItem("iron_ore", 8);
         inventory.addItem("leather", 8);
+        inventory.addItem("blood_shard", 1);
+        inventory.addItem("wolf_fang", 1);
+        inventory.addItem("ember_core", 1);
+        inventory.addItem("void_crystal", 1);
+        inventory.addItem("hunters_blade", 1);
+        inventory.addItem("heavy_blade", 1);
         inventory.addItem("iron_sword", 1);
         inventory.getToolbarSlot(0).itemId = "iron_sword";
         inventory.getToolbarSlot(0).count = 1;
@@ -293,6 +348,10 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         inventory.getToolbarSlot(1).count = 3;
         inventory.getToolbarSlot(2).itemId = "dungeon_key";
         inventory.getToolbarSlot(2).count = 2;
+        inventory.getToolbarSlot(3).itemId = "speed_potion";
+        inventory.getToolbarSlot(3).count = 2;
+        inventory.getToolbarSlot(4).itemId = "regen_potion";
+        inventory.getToolbarSlot(4).count = 2;
         inventory.getEquipSlot(Inventory.EquipSlot.HELMET).itemId = "iron_helmet";
         inventory.getEquipSlot(Inventory.EquipSlot.HELMET).count = 1;
         inventory.getEquipSlot(Inventory.EquipSlot.CHESTPLATE).itemId = "iron_chestplate";
@@ -327,6 +386,10 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                 inventory, playerStats, playerModel,
                 settings.getWidth(), settings.getHeight());
         guiNode.attachChild(inventoryUI.getNode());
+        // "Use" on a weapon in the inventory menu hands it to the combat controller
+        inventoryUI.setWeaponEquipHandler(weaponId -> {
+            if (combat != null) combat.equip(weaponId);
+        });
 
         buildHUD(settings.getWidth(), settings.getHeight());
 
@@ -708,12 +771,20 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         inputManager.addMapping("AttackPrimary", new MouseButtonTrigger(MouseInput.BUTTON_LEFT));
         inputManager.addMapping("AttackSecondary", new MouseButtonTrigger(MouseInput.BUTTON_RIGHT));
 
+        // quick-use the five toolbar slots (1-5 are the supply bar, 0 is the weapon)
+        inputManager.addMapping("Hotbar0", new KeyTrigger(KeyInput.KEY_1));
+        inputManager.addMapping("Hotbar1", new KeyTrigger(KeyInput.KEY_2));
+        inputManager.addMapping("Hotbar2", new KeyTrigger(KeyInput.KEY_3));
+        inputManager.addMapping("Hotbar3", new KeyTrigger(KeyInput.KEY_4));
+        inputManager.addMapping("Hotbar4", new KeyTrigger(KeyInput.KEY_5));
+
         inputManager.addListener(
                 this,
                 "Left", "Right", "Forward", "Backward",
                 "Jump", "Dodge", "Crouch",
                 "AttackPrimary", "AttackSecondary",
-                "Inventory", "Interact"
+                "Inventory", "Interact",
+                "Hotbar0", "Hotbar1", "Hotbar2", "Hotbar3", "Hotbar4"
         );
     }
 
@@ -742,11 +813,35 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                     if (isPressed && inventoryOpen && inventoryUI != null) inventoryUI.handlePrimaryClick();
                     return;
                 }
+                // an in-world right-click menu owns mouse clicks while it's up
+                if (isPressed && inventoryUI != null && inventoryUI.isContextMenuOpen()) {
+                    inventoryUI.handlePrimaryClick();
+                    return;
+                }
                 break;
 
             case "AttackSecondary":
-                // drop gameplay input whenever a UI is up.
-                if (isUiOpen()) return;
+                // drop gameplay input whenever a UI is up, but let the inventory
+                // see it — right-click opens the item's action menu. Only on the
+                // press so mouse-up doesn't instantly close it again.
+                if (isUiOpen()) {
+                    if (isPressed && inventoryOpen && inventoryUI != null) inventoryUI.handleSecondaryClick();
+                    return;
+                }
+                // right-clicking an in-world toolbar slot opens its action menu
+                if (isPressed && inventoryUI != null) {
+                    if (inventoryUI.isContextMenuOpen()) {
+                        inventoryUI.closeContextMenu();
+                        return;
+                    }
+                    Vector2f cur = inputManager.getCursorPosition();
+                    int idx = hudToolbarSlotAt(cur.x, cur.y);
+                    if (idx >= 0) {
+                        float x = hudToolbarLeft + idx * (hudToolbarSlot + hudToolbarGap);
+                        inventoryUI.openMenuForSlot(inventory.getToolbarSlot(idx), x, hudToolbarBottom);
+                        return;
+                    }
+                }
                 break;
         }
 
@@ -785,6 +880,40 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                     if (isPressed) combat.onSecondaryPressed();
                     else combat.onSecondaryReleased();
                 }
+                break;
+
+            // toolbar quick-use: 1-5 map to the supply bar slots
+            case "Hotbar0":
+            case "Hotbar1":
+            case "Hotbar2":
+            case "Hotbar3":
+            case "Hotbar4":
+                if (isPressed) useToolbarSlot(name.charAt("Hotbar".length()) - '0');
+                break;
+        }
+    }
+
+    /**
+     * Uses whatever sits in a toolbar slot. Potions get drunk, the weapon slot
+     * re-equips the readied weapon; keys and materials sit there but never get used.
+     */
+    private void useToolbarSlot(int slotIndex) {
+        if (inventory == null) return;
+        Slot slot = inventory.getToolbarSlot(slotIndex);
+        if (slot == null || slot.isEmpty()) return;
+        Item item = ItemRegistry.get(slot.itemId);
+        if (item == null) return;
+
+        switch (item.getGroup()) {
+            case CONSUMABLE:
+                // drink it if the effect is non-empty; keys/materials never fire
+                if (playerStats.consume(item)) inventory.removeFromToolbar(slotIndex, 1);
+                break;
+            case WEAPON:
+                if (combat != null) combat.equip(item.id);
+                break;
+            default:
+                // keys and materials are guarded by consume() returning false
                 break;
         }
     }
@@ -829,6 +958,25 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             inventoryUI.update(tpf, cam);
         }
 
+        // while the in-world toolbar menu is up, reveal the cursor so the
+        // player can aim at its options (it's hidden during normal gameplay)
+        boolean menuUp = inventoryUI != null && inventoryUI.isContextMenuOpen();
+        boolean wantCursor = inventoryOpen || menuUp;
+        if (wantCursor != hudCursorShown) {
+            inputManager.setCursorVisible(wantCursor);
+            hudCursorShown = wantCursor;
+        }
+
+        // keep the buff particle auras in sync with the potion timers (also while
+        // browsing the paused inventory, so the aura is visible right on drink)
+        if (buffEffects != null) {
+            buffEffects.update(playerStats);
+        }
+
+        if (effects != null) {
+            effects.update(tpf);
+        }
+
         // the world is paused while inventory/shop/chest is open.
         if (isUiOpen()) {
             return;
@@ -846,6 +994,8 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         if (combat != null) {
             combat.setEnemies(stageManager != null ? stageManager.getActiveEnemies() : null);
             combat.update(tpf);
+        // potion buffs tick down and regen does its thing every frame
+        if (playerStats != null) playerStats.update(tpf);
         }
 
         // Chests/NPCs only live in the Sanctuary — rebuild them when we come back,
@@ -888,7 +1038,9 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                 dodging = false;
             }
         } else {
-            float speed = crouching ? MOVE_SPEED * CROUCH_SPEED_MULTIPLIER : MOVE_SPEED;
+            // speed potions and leggings/boots now feed straight into walking
+            float baseSpeed = playerStats != null ? playerStats.getMovementSpeed() : 12f;
+            float speed = crouching ? baseSpeed * CROUCH_SPEED_MULTIPLIER : baseSpeed;
 
             if (walkDirection.lengthSquared() > 0) {
                 walkDirection.normalizeLocal().multLocal(speed);
@@ -920,7 +1072,10 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                 FastMath.cos(camYaw) * FastMath.cos(camPitch)
         ).multLocal(camDistance);
 
-        cam.setLocation(playerPos.add(offset).add(0, 1.5f, 0));
+        // the combat shake rides on top of the orbit position; getShakeOffset
+        // returns zero when nothing's kicking, so the camera stays untouched
+        Vector3f shakeOffset = effects != null ? effects.getShakeOffset(tpf) : Vector3f.ZERO;
+        cam.setLocation(playerPos.add(offset).add(0, 1.5f, 0).add(shakeOffset));
         cam.lookAt(playerPos.add(0, 1.5f, 0), Vector3f.UNIT_Y);
     }
 
@@ -971,8 +1126,174 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         hudEnemiesText.setLocalTranslation(margin, (20f * hudSy + barH + 8f * hudSy), 0);
         hudNode.attachChild(hudEnemiesText);
 
+        // potion buff timers: a row of tiny draining pills above the enemy counter,
+        // each tinted with its buff's color and showing the seconds left
+        float buffX = margin;
+        float buffY = (20f * hudSy + barH + 26f * hudSy) + 3f * hudSy;
+        float buffW = 34f * hudSx;
+        float buffH = 10f * hudSy;
+        float buffGap = 30f * hudSx; // room for the seconds label next to each bar
+        for (int i = 0; i < PlayerStats.Buff.values().length; i++) {
+            hudBuffTracks[i] = makeHudQuad(buffX, buffY, buffW, buffH, new ColorRGBA(0.08f, 0.08f, 0.1f, 0.85f));
+            hudBuffTracks[i].setCullHint(Spatial.CullHint.Always);
+            hudNode.attachChild(hudBuffTracks[i]);
+            hudBuffFills[i] = makeHudQuad(buffX + 2f * hudSx, buffY + 2f * hudSy,
+                    Math.max(1f, buffW - 4f * hudSx), Math.max(1f, buffH - 4f * hudSy),
+                    HUD_BUFF_COLORS[i]);
+            hudBuffFills[i].setCullHint(Spatial.CullHint.Always);
+            hudNode.attachChild(hudBuffFills[i]);
+            hudBuffSecs[i] = new BitmapText(font, false);
+            hudBuffSecs[i].setSize(13f * hudSy);
+            hudBuffSecs[i].setColor(ColorRGBA.White);
+            hudBuffSecs[i].setText("");
+            hudBuffSecs[i].setLocalTranslation(buffX + buffW + 4f * hudSx, buffY - 1f * hudSy, 0);
+            hudBuffSecs[i].setCullHint(Spatial.CullHint.Always);
+            hudNode.attachChild(hudBuffSecs[i]);
+            buffX += buffW + buffGap;
+        }
+
+        // attack cooldown indicator, centered along the bottom edge. The fill
+        // drains right-to-left as the current weapon comes off cooldown.
+        float cdW = 200f * hudSx;
+        float cdH = 12f * hudSy;
+        float cdX = (screenW - cdW) / 2f;
+        float cdY = 26f * hudSy;
+        makeHudQuad(cdX, cdY, cdW, cdH, new ColorRGBA(0.08f, 0.08f, 0.10f, 0.85f));
+        hudCooldownFill = makeHudQuad(cdX + inset, cdY + inset,
+                (cdW - inset * 2f), cdH - inset * 2f,
+                new ColorRGBA(0.95f, 0.75f, 0.2f, 1f));
+
+        buildToolbarHUD(font, screenW);
         guiNode.attachChild(hudNode);
         updateHUD();
+    }
+
+    /** Five semi-transparent quick-use slots (keys 1-5) centered above the bar. */
+    private void buildToolbarHUD(BitmapFont font, int screenW) {
+        hudToolbarSlot = 46f * hudSx;
+        hudToolbarGap = 8f * hudSx;
+        float total = Inventory.TOOLBAR_SIZE * hudToolbarSlot
+                + (Inventory.TOOLBAR_SIZE - 1) * hudToolbarGap;
+        hudToolbarLeft = (screenW - total) / 2f;
+        hudToolbarBottom = 46f * hudSy;
+
+        for (int i = 0; i < Inventory.TOOLBAR_SIZE; i++) {
+            float x = hudToolbarLeft + i * (hudToolbarSlot + hudToolbarGap);
+
+            // transparent background so the world still shows through
+            hudToolbarSlots[i] = makeHudQuad(x, hudToolbarBottom, hudToolbarSlot, hudToolbarSlot,
+                    new ColorRGBA(0.04f, 0.05f, 0.06f, 0.28f));
+            hudToolbarBorders[i] = makeHudQuad(x - 1f, hudToolbarBottom - 1f,
+                    hudToolbarSlot + 2f, hudToolbarSlot + 2f,
+                    new ColorRGBA(0.55f, 0.57f, 0.60f, 0.28f));
+
+            hudToolbarIcons[i] = makeHudQuad(x + 3f, hudToolbarBottom + 3f,
+                    hudToolbarSlot - 6f, hudToolbarSlot - 6f,
+                    new ColorRGBA(0.25f, 0.25f, 0.28f, 1f));
+            hudToolbarIcons[i].setCullHint(Spatial.CullHint.Always);
+
+            hudToolbarIconsTex[i] = makeHudQuad(x + 3f, hudToolbarBottom + 3f,
+                    hudToolbarSlot - 6f, hudToolbarSlot - 6f, ColorRGBA.White);
+            hudToolbarIconsTex[i].setCullHint(Spatial.CullHint.Always);
+
+            hudToolbarCounts[i] = new BitmapText(font, false);
+            hudToolbarCounts[i].setSize(13f * hudSy);
+            hudToolbarCounts[i].setColor(new ColorRGBA(0.98f, 0.88f, 0.6f, 1f));
+            hudNode.attachChild(hudToolbarCounts[i]);
+
+            hudToolbarNumbers[i] = new BitmapText(font, false);
+            hudToolbarNumbers[i].setSize(12f * hudSy);
+            hudToolbarNumbers[i].setColor(new ColorRGBA(0.85f, 0.88f, 0.92f, 0.9f));
+            hudToolbarNumbers[i].setText("" + (i + 1));
+            hudToolbarNumbers[i].setLocalTranslation(x + 3f * hudSx,
+                    hudToolbarBottom + hudToolbarSlot - 12f * hudSy, 0f);
+            hudNode.attachChild(hudToolbarNumbers[i]);
+        }
+        hudToolbarBuilt = true;
+    }
+
+    /** Paints the current inventory toolbar onto the HUD slots each frame. */
+    private void refreshToolbarHud() {
+        if (!hudToolbarBuilt || inventory == null) return;
+
+        // which toolbar slot holds the weapon the combat controller is using?
+        int armedWeapon = -1;
+        if (combat != null && combat.getEquippedWeaponId() != null) {
+            String armed = combat.getEquippedWeaponId();
+            for (int i = 0; i < Inventory.TOOLBAR_SIZE; i++) {
+                Slot s = inventory.getToolbarSlot(i);
+                if (!s.isEmpty() && armed.equals(s.itemId)) {
+                    armedWeapon = i;
+                    break;
+                }
+            }
+        }
+
+        for (int i = 0; i < Inventory.TOOLBAR_SIZE; i++) {
+            float x = hudToolbarLeft + i * (hudToolbarSlot + hudToolbarGap);
+            Slot s = inventory.getToolbarSlot(i);
+            Geometry icon = hudToolbarIcons[i];
+            Geometry tex = hudToolbarIconsTex[i];
+
+            if (s.isEmpty()) {
+                icon.setCullHint(Spatial.CullHint.Always);
+                tex.setCullHint(Spatial.CullHint.Always);
+                hudToolbarCounts[i].setText("");
+            } else {
+                Item item = s.getItem();
+                Texture t = loadHudIcon(item.iconPath);
+                if (t != null) {
+                    tex.getMaterial().setTexture("ColorMap", t);
+                    tex.getMaterial().setColor("Color", ColorRGBA.White);
+                    tex.setCullHint(Spatial.CullHint.Never);
+                    icon.setCullHint(Spatial.CullHint.Always);
+                } else {
+                    tex.setCullHint(Spatial.CullHint.Always);
+                    icon.setCullHint(Spatial.CullHint.Never);
+                    icon.getMaterial().setColor("Color",
+                            new ColorRGBA(item.iconColor.r, item.iconColor.g, item.iconColor.b, 0.9f));
+                }
+                hudToolbarCounts[i].setText(s.count > 1 ? "" + s.count : "");
+                float ch = hudToolbarCounts[i].getLineHeight();
+                hudToolbarCounts[i].setLocalTranslation(
+                        x + hudToolbarSlot - 3f * hudSx - hudToolbarCounts[i].getLineWidth(),
+                        hudToolbarBottom + ch / 2f + 2f * hudSy, 0f);
+            }
+
+            // armed weapon glows green so it's obvious what you'll swing
+            hudToolbarBorders[i].getMaterial().setColor("Color",
+                    i == armedWeapon
+                            ? new ColorRGBA(0.35f, 0.85f, 0.45f, 0.9f)
+                            : new ColorRGBA(0.55f, 0.57f, 0.60f, 0.28f));
+        }
+    }
+
+    /** Returns the toolbar index under the cursor, or -1. */
+    private int hudToolbarSlotAt(float px_, float py_) {
+        if (!hudToolbarBuilt) return -1;
+        for (int i = 0; i < Inventory.TOOLBAR_SIZE; i++) {
+            float x = hudToolbarLeft + i * (hudToolbarSlot + hudToolbarGap);
+            if (px_ >= x && px_ <= x + hudToolbarSlot
+                    && py_ >= hudToolbarBottom && py_ <= hudToolbarBottom + hudToolbarSlot) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** Loads a HUD item icon by path, cached and missing-file-safe. */
+    private Texture loadHudIcon(String path) {
+        if (path == null) return null;
+        Texture tex = hudIconCache.get(path);
+        if (tex == null) {
+            try {
+                tex = assetManager.loadTexture(path);
+            } catch (Exception e) {
+                tex = null;
+            }
+            hudIconCache.put(path, tex);
+        }
+        return tex;
     }
 
     private void updateHUD() {
@@ -994,6 +1315,14 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         hudHpFill.setLocalScale(ratio, 1f, 1f);
         hudHpText.setText((int) playerStats.getHealth() + " / " + (int) maxHp);
 
+        // cooldown bar mirrors the weapon's remaining cooldown, draining when ready
+        if (hudCooldownFill != null) {
+            float pending = combat != null ? combat.getCooldownFraction() : 0f;
+            float fill = 1f - pending;
+            // leave a faint sliver so an "almost ready" bar doesn't vanish
+            hudCooldownFill.setLocalScale(Math.max(0.02f, fill), 1f, 1f);
+        }
+
         int remaining = (stageManager != null && stageManager.getActiveEnemies() != null)
                 ? stageManager.getActiveEnemies().size() : 0;
         if (remaining > 0) {
@@ -1002,6 +1331,24 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         } else {
             hudEnemiesText.setText("Enemies: 0");
         }
+
+        // potion buff timers: show each active buff as a draining colored pill. When
+        // the timer hits zero the pill vanishes and the stats have already reset.
+        PlayerStats.Buff[] buffs = PlayerStats.Buff.values();
+        for (int i = 0; i < buffs.length; i++) {
+            float frac = playerStats.buffFraction(buffs[i]);
+            boolean active = frac > 0f;
+            Spatial.CullHint hint = active ? Spatial.CullHint.Never : Spatial.CullHint.Always;
+            hudBuffTracks[i].setCullHint(hint);
+            hudBuffFills[i].setCullHint(hint);
+            hudBuffSecs[i].setCullHint(hint);
+            if (active) {
+                hudBuffFills[i].setLocalScale(frac, 1f, 1f);
+                hudBuffSecs[i].setText("" + (int) Math.ceil(playerStats.buffRemaining(buffs[i])));
+            }
+        }
+
+        refreshToolbarHud();
     }
 
     /**
@@ -1012,8 +1359,9 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         Chest chest1 = new Chest(new Vector3f(10f, 0.6f, -15f));
         chest1.build(assetManager, rootNode, bulletAppState);
         chest1.addLoot("health_potion", 3);
-        chest1.addLoot("mana_potion", 2);
+        chest1.addLoot("regen_potion", 2);
         chest1.addLoot("iron_ingot", 5);
+        chest1.addLoot("iron_ore", 6);
         chest1.setChestUI(chestUI);
         interactables.add(chest1);
         interactablePhysics.add(chest1.getPhysics());
@@ -1023,6 +1371,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         chest2.addLoot("leather", 8);
         chest2.addLoot("dungeon_key", 1);
         chest2.addLoot("health_potion", 2);
+        chest2.addLoot("wolf_fang", 1);
         chest2.setChestUI(chestUI);
         interactables.add(chest2);
         interactablePhysics.add(chest2.getPhysics());
@@ -1031,7 +1380,9 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         chest3.build(assetManager, rootNode, bulletAppState);
         chest3.addLoot("iron_sword", 1);
         chest3.addLoot("iron_ingot", 10);
-        chest3.addLoot("mana_potion", 4);
+        chest3.addLoot("speed_potion", 2);
+        chest3.addLoot("strength_potion", 1);
+        chest3.addLoot("hunters_blade", 1);
         chest3.setChestUI(chestUI);
         interactables.add(chest3);
         interactablePhysics.add(chest3.getPhysics());
@@ -1043,9 +1394,17 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         merchant1.build(assetManager, rootNode, bulletAppState);
         // stock the shop with items and prices
         merchant1.addShopItem("health_potion", 15);
-        merchant1.addShopItem("mana_potion", 20);
+        merchant1.addShopItem("speed_potion", 18);
+        merchant1.addShopItem("strength_potion", 22);
+        merchant1.addShopItem("critical_potion", 25);
+        merchant1.addShopItem("regen_potion", 16);
         merchant1.addShopItem("iron_ingot", 25);
+        merchant1.addShopItem("iron_ore", 8);
         merchant1.addShopItem("leather", 10);
+        merchant1.addShopItem("wolf_fang", 35);
+        merchant1.addShopItem("blood_shard", 45);
+        merchant1.addShopItem("ember_core", 55);
+        merchant1.addShopItem("void_crystal", 95);
         merchant1.setShopUI(shopUI);
         interactables.add(merchant1);
         interactablePhysics.add(merchant1.getPhysics());
@@ -1054,9 +1413,13 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         merchant2.build(assetManager, rootNode, bulletAppState);
         // stock the shop with items and prices
         merchant2.addShopItem("iron_sword", 100);
+        merchant2.addShopItem("hunters_blade", 120);
+        merchant2.addShopItem("heavy_blade", 140);
         merchant2.addShopItem("iron_helmet", 80);
         merchant2.addShopItem("iron_chestplate", 120);
+        merchant2.addShopItem("iron_leggings", 90);
         merchant2.addShopItem("iron_boots", 60);
+        merchant2.addShopItem("dungeon_key", 50);
         merchant2.setShopUI(shopUI);
         interactables.add(merchant2);
         interactablePhysics.add(merchant2.getPhysics());

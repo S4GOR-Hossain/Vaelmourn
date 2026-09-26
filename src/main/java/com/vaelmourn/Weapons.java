@@ -25,6 +25,7 @@ public class Weapons {
         public final float blockReduction;    // 0..1 fraction of incoming damage blocked
         public final float pushForce;         // knockback strength for the shield push
         public final float parryWindow;       // how long the parry window lasts, in seconds
+        public final float meleeKnockback;    // how hard a melee hit shoves the enemy
 
         public WeaponDef(
                 String id,
@@ -38,7 +39,8 @@ public class Weapons {
                 float adsFov,
                 float blockReduction,
                 float pushForce,
-                float parryWindow
+                float parryWindow,
+                float meleeKnockback
         ) {
             this.id = id;
             this.group = group;
@@ -52,6 +54,7 @@ public class Weapons {
             this.blockReduction = blockReduction;
             this.pushForce = pushForce;
             this.parryWindow = parryWindow;
+            this.meleeKnockback = meleeKnockback;
         }
     }
 
@@ -68,7 +71,13 @@ public class Weapons {
         }
 
         public void triggerCooldown() {
-            cooldown = 1f / Math.max(0.01f, def.attackSpeed);
+            triggerCooldown(1f);
+        }
+
+        /** Starts the cooldown, scaled by the player's attack-speed multiplier. */
+        public void triggerCooldown(float attackSpeedMultiplier) {
+            float effective = def.attackSpeed * Math.max(0.05f, attackSpeedMultiplier);
+            cooldown = 1f / Math.max(0.01f, effective);
         }
 
         public void update(float tpf) {
@@ -84,12 +93,31 @@ public class Weapons {
 
     private void registerDefaults() {
         // --- melee ---
+        // balanced all-rounder; the default loadout
         add(new WeaponDef(
                 "iron_sword",
                 WeaponGroup.MELEE,
                 "Models/Weapons/Melee/iron_sword.glb",
                 28f, 1.4f, 1.9f, 2.4f,
-                0f, 50f, 0f, 0f, 0.18f
+                0f, 50f, 0f, 0f, 0.18f, 14f
+        ));
+
+        // fast and light: weak hits, quick swings, gentle knockback
+        add(new WeaponDef(
+                "hunters_blade",
+                WeaponGroup.MELEE,
+                "Models/Weapons/Melee/hunters_blade.glb",
+                16f, 2.8f, 1.4f, 2.2f,
+                0f, 55f, 0f, 0f, 0.15f, 8f
+        ));
+
+        // slow and heavy: big hits, sluggish swing, shoves enemies hard
+        add(new WeaponDef(
+                "heavy_blade",
+                WeaponGroup.MELEE,
+                "Models/Weapons/Melee/heavy_blade.glb",
+                44f, 0.9f, 2.2f, 2.6f,
+                0f, 45f, 0f, 0f, 0.2f, 26f
         ));
 
         add(new WeaponDef(
@@ -97,7 +125,7 @@ public class Weapons {
                 WeaponGroup.MELEE,
                 "Models/Weapons/Melee/dagger.glb",
                 16f, 2.4f, 1.5f, 1.8f,
-                0f, 55f, 0f, 0f, 0.14f
+                0f, 55f, 0f, 0f, 0.14f, 6f
         ));
 
         // --- ranged ---
@@ -106,7 +134,7 @@ public class Weapons {
                 WeaponGroup.RANGED,
                 "Models/Weapons/Ranged/longbow.glb",
                 24f, 1.0f, 1.0f, 60f,
-                55f, 35f, 0f, 0f, 0f
+                55f, 35f, 0f, 0f, 0f, 0f
         ));
 
         add(new WeaponDef(
@@ -114,7 +142,7 @@ public class Weapons {
                 WeaponGroup.RANGED,
                 "Models/Weapons/Ranged/pistol.glb",
                 20f, 3.2f, 1.0f, 80f,
-                120f, 42f, 0f, 0f, 0f
+                120f, 42f, 0f, 0f, 0f, 0f
         ));
 
         // --- shields & specials ---
@@ -123,7 +151,7 @@ public class Weapons {
                 WeaponGroup.SPECIAL,
                 "Models/Weapons/Special/kite_shield.glb",
                 10f, 1.0f, 1.0f, 2.0f,
-                0f, 55f, 0.65f, 14f, 0f
+                0f, 55f, 0.65f, 14f, 0f, 0f
         ));
     }
 

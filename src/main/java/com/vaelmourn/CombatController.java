@@ -16,6 +16,8 @@ public class CombatController {
     private final Node playerNode;
     private final AnimComposer animComposer;
     private final Weapons weapons;
+    private CombatEffects effects;
+    private PlayerStats playerStats;
 
     private Weapons.WeaponInstance equipped;
 
@@ -29,6 +31,12 @@ public class CombatController {
 
     private float defaultFov = 45f;
     private float targetFov = 45f;
+
+    // how much camera kick each attack carries when it connects
+    private static final float MELEE_LIGHT_HIT_SHAKE = 0.05f;
+    private static final float MELEE_HEAVY_HIT_SHAKE = 0.10f;
+    private static final float RANGED_HIT_SHAKE = 0.08f;
+    private static final float SHIELD_PUSH_HIT_SHAKE = 0.12f;
 
     public CombatController(
             Camera cam,
@@ -51,10 +59,40 @@ public class CombatController {
         blockHeld = false;
         heavyCharging = false;
         heavyChargeTime = 0f;
+        // push the weapon's own stats through so the stat bar / buff math
+        // works off the real, currently readied weapon
+        if (playerStats != null && equipped != null) {
+            playerStats.setBaseWeaponDamage(equipped.def.damage);
+            playerStats.setBaseAttackSpeed(equipped.def.attackSpeed);
+        }
+    }
+
+    public void setPlayerStats(PlayerStats playerStats) {
+        this.playerStats = playerStats;
+    }
+
+    public String getEquippedWeaponId() {
+        return equipped == null ? null : equipped.def.id;
     }
 
     public Weapons.WeaponInstance getEquipped() {
         return equipped;
+    }
+
+    /** Hook in the combat feel stuff (damage numbers, shake, sounds). */
+    public void setEffects(CombatEffects effects) {
+        this.effects = effects;
+    }
+
+    /**
+     * What fraction of the cooldown is still pending (1.0 = just swung, 0.0 = ready).
+     * The HUD mirrors this on its attack cooldown bar.
+     */
+    public float getCooldownFraction() {
+        if (equipped == null) return 0f;
+        float mult = playerStats != null ? playerStats.getAttackSpeedMultiplier() : 1f;
+        float total = 1f / Math.max(0.01f, equipped.def.attackSpeed * Math.max(0.05f, mult));
+        return FastMath.clamp(total <= 0f ? 0f : equipped.cooldown / total, 0f, 1f);
     }
 
     /** Feed the currently active enemy list in so attacks can hit them. */
@@ -159,17 +197,19 @@ public class CombatController {
 
     private void doMeleeLight() {
         // Sweep a cone in front of the player — arc across, weapon range deep.
-        applyMeleeArc(equipped.def.damage, equipped.def.range, 90f);
+        applyMeleeArc(finalizeDamage(equipped.def.damage), equipped.def.range, 90f, MELEE_LIGHT_HIT_SHAKE);
         playAnimSafe("Attack_Light");
-        equipped.triggerCooldown();
+        notifySwing(false);
+        triggerCooldown();
     }
 
     private void doMeleeHeavy() {
         float chargeScale = FastMath.clamp(1f + heavyChargeTime, 1f, 2f);
-        float finalDamage = equipped.def.damage * equipped.def.heavyMultiplier * chargeScale;
-        applyMeleeArc(finalDamage, equipped.def.range * 1.2f, 160f);
+        float raw = equipped.def.damage * equipped.def.heavyMultiplier * chargeScale;
+        applyMeleeArc(finalizeDamage(raw), equipped.def.range * 1.2f, 160f, MELEE_HEAVY_HIT_SHAKE);
         playAnimSafe("Attack_Heavy");
-        equipped.triggerCooldown();
+        notifySwing(true);
+        triggerCooldown();
     }
 
     private void doRangedFire() {
@@ -189,15 +229,18 @@ public class CombatController {
             }
         }
         if (target != null) {
-            target.takeDamage(equipped.def.damage);
+            float dealt = finalizeDamage(equipped.def.damage);
+            target.takeDamage(dealt);
             Vector3f away = target.getPosition().subtract(ray.origin);
             away.y = 0f;
             if (away.lengthSquared() > 1e-4f) {
                 target.applyKnockback(away.normalizeLocal(), 12f);
             }
+            if (effects != null) effects.onEnemyHit(target, dealt, target.isDead(), RANGED_HIT_SHAKE);
         }
         playAnimSafe("Shoot");
-        equipped.triggerCooldown();
+        notifySwing(false);
+        triggerCooldown();
     }
 
     private void doShieldPush() {
@@ -209,16 +252,19 @@ public class CombatController {
             to.y = 0f;
             if (to.length() > equipped.def.range + 0.5f) continue;
             if (forward.dot(to.normalizeLocal()) > 0.5f) {
-                e.takeDamage(equipped.def.damage);
+                float dealt = finalizeDamage(equipped.def.damage);
+                e.takeDamage(dealt);
                 e.applyKnockback(to.normalizeLocal(), 22f);
+                if (effects != null) effects.onEnemyHit(e, dealt, e.isDead(), SHIELD_PUSH_HIT_SHAKE);
             }
         }
         playAnimSafe("Shield_Push");
-        equipped.triggerCooldown();
+        notifySwing(true);
+        triggerCooldown();
     }
 
     /** Damages every living enemy inside a horizontal cone (arcDeg wide, reach deep). */
-    private void applyMeleeArc(float damage, float reach, float arcDeg) {
+    private void applyMeleeArc(float damage, float reach, float arcDeg, float shakeAmp) {
         if (enemies.isEmpty()) return;
         Vector3f origin = playerNode.getWorldTranslation();
         Vector3f forward = cam.getDirection();
@@ -234,8 +280,26 @@ public class CombatController {
             float dot = FastMath.clamp(dir.dot(n), -1f, 1f);
             if (FastMath.acos(dot) <= arcHalf) {
                 e.takeDamage(damage);
-                e.applyKnockback(n, 14f);
+                // heavy blades shove harder; light blades barely push
+                e.applyKnockback(n, equipped.def.meleeKnockback);
+                if (effects != null) effects.onEnemyHit(e, damage, e.isDead(), shakeAmp);
             }
+        }
+    }
+
+    /** Applies strength potion + crit roll to a base weapon hit. */
+    private float finalizeDamage(float baseDamage) {
+        return playerStats != null ? playerStats.rollFinalDamage(baseDamage) : baseDamage;
+    }
+
+    /** Starts the swing cooldown, scaled by any active attack-speed buff. */
+    private void triggerCooldown() {
+        equipped.triggerCooldown(playerStats != null ? playerStats.getAttackSpeedMultiplier() : 1f);
+    }
+
+    private void notifySwing(boolean heavy) {
+        if (effects != null) {
+            effects.onPlayerAttack(playerNode.getWorldTranslation(), heavy);
         }
     }
 

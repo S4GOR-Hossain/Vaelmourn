@@ -69,6 +69,18 @@ public class Inventory {
         return toolbar[index];
     }
 
+    /**
+     * Removes {@code count} from a toolbar slot (for quick-use consumables),
+     * clearing the slot if the stack runs out.
+     */
+    public void removeFromToolbar(int index, int count) {
+        if (index < 0 || index >= TOOLBAR_SIZE) return;
+        Slot slot = toolbar[index];
+        if (slot.isEmpty()) return;
+        slot.count -= count;
+        if (slot.count <= 0) slot.clear();
+    }
+
     public Slot[] getToolbar() {
         return toolbar;
     }

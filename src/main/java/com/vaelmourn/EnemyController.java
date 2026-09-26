@@ -43,12 +43,24 @@ public class EnemyController {
 
     // impulse applied by player hits; I let it decay out on its own
     private final Vector3f knockback = new Vector3f();
-    private static final float KNOCKBACK_TIME = 0.35f;   // how long a single knockback push sticks around
+    private static final float KNOCKBACK_DURATION = 0.35f;   // how long a single knockback push sticks around
+    private static final float KNOCKBACK_DEFAULT_FORCE = 7f; // push used unless the caller passes a bigger one
     private float knockbackTimer = 0f;
 
     private boolean dead = false;
     private float deathTimer = 0f;
-    private Material originalMaterial;
+    private boolean removable = false;   // effect finished, safe for the stage to remove us
+    private static final float DEATH_EFFECT_DURATION = 0.6f;  // how long the death pop plays before removal
+    private static final float HIT_FLASH_DURATION = 0.15f;    // white blink after taking a hit
+    // how long the "about to attack" telegraph lasts before the damage lands
+    private static final float ATTACK_TELEGRAPH_DURATION = 0.4f;
+    private boolean attacking = false;
+    private float attackWindupTimer = 0f;
+
+    private Material capsuleMat;
+    private ColorRGBA defaultColor;
+    private final ColorRGBA matScratch = new ColorRGBA();
+    private ColorRGBA lastMatColor = new ColorRGBA();
     private float damageFlashTimer = 0f;
 
     private int tier; // tiers: 1=easy (green), 2=medium (orange), 3=hard (red)
@@ -65,6 +77,7 @@ public class EnemyController {
     private final ParticleEmitter hitEmitter;
     private float emitterTimer = 0f;
     private static final float EMITTER_LIFETIME = 0.35f;
+    private final ParticleEmitter deathEmitter;
 
     public EnemyController(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState,
                           Vector3f spawnPos, int tier, int loopCount) {
@@ -117,7 +130,8 @@ public class EnemyController {
         // lifted it by half its height so the lower half doesn't sink into the ground.
         capsule.setLocalTranslation(0f, 0.7f, 0f);
         node.attachChild(capsule);
-        this.originalMaterial = mat;
+        this.capsuleMat = mat;
+        this.defaultColor = color;
 
         // health bar hovering above the capsule, always turned toward the camera
         Node healthBarNode = new Node("HealthBar");
@@ -166,6 +180,25 @@ public class EnemyController {
         hitEmitter.setEnabled(false);
         parentNode.attachChild(hitEmitter);
 
+        // bigger, brighter burst reserved for when the enemy actually dies
+        deathEmitter = new ParticleEmitter("DeathBurst", ParticleMesh.Type.Triangle, 40);
+        Material dm = new Material(assetManager, "Common/MatDefs/Misc/Particle.j3md");
+        if (glowTex != null) {
+            dm.setTexture("Texture", glowTex);
+        }
+        deathEmitter.setMaterial(dm);
+        deathEmitter.setStartColor(ColorRGBA.Orange);
+        deathEmitter.setEndColor(ColorRGBA.Red);
+        deathEmitter.setStartSize(0.5f);
+        deathEmitter.setEndSize(0.08f);
+        deathEmitter.setGravity(0f, 4f, 0f);
+        deathEmitter.setLowLife(0.3f);
+        deathEmitter.setHighLife(0.7f);
+        deathEmitter.setParticlesPerSec(0f);
+        deathEmitter.setLocalTranslation(spawnPos.add(0f, 0.7f, 0f));
+        deathEmitter.setEnabled(false);
+        parentNode.attachChild(deathEmitter);
+
         node.setLocalTranslation(spawnPos);
         parentNode.attachChild(node);
 
@@ -185,7 +218,24 @@ public class EnemyController {
      */
     public void update(float tpf, Vector3f playerPos, PlayerStats playerStats) {
         if (dead) {
+            // death pop plays out here instead of vanishing instantly
             deathTimer -= tpf;
+            float k = FastMath.clamp((DEATH_EFFECT_DURATION - deathTimer) / DEATH_EFFECT_DURATION, 0f, 1f);
+            node.setLocalScale(1f - 0.8f * k);
+            if (capsuleMat != null) {
+                matScratch.set(
+                        FastMath.clamp(defaultColor.r + (1f - defaultColor.r) * k, 0f, 1f),
+                        FastMath.clamp(defaultColor.g * (1f - k), 0f, 1f),
+                        FastMath.clamp(defaultColor.b * (1f - k), 0f, 1f),
+                        1f);
+                if (!matScratch.equals(lastMatColor)) {
+                    lastMatColor.set(matScratch);
+                    capsuleMat.setColor("Color", matScratch);
+                }
+            }
+            if (deathTimer <= 0f) {
+                removable = true;
+            }
             return;
         }
 
@@ -216,22 +266,30 @@ public class EnemyController {
         // while a knockback is active, scale down the enemy's own movement so
         // it can't just walk straight through the push and cancel it
         float kbMag = knockback.length();
-        float kbLinger = FastMath.clamp(knockbackTimer / KNOCKBACK_TIME, 0f, 1f);
+        float kbLinger = FastMath.clamp(knockbackTimer / KNOCKBACK_DURATION, 0f, 1f);
 
         Vector3f desiredMove = Vector3f.ZERO;
-        if (distToPlayer < detectionRange) {
+        if (attacking) {
+            // telegraphing: planted and pulsing red, hit lands when the timer hits zero
+            attackWindupTimer -= tpf;
+            physics.setWalkDirection(knockback);
+            if (attackWindupTimer <= 0f) {
+                attacking = false;
+                if (playerStats != null && enemyPos.distance(playerPos) <= attackRange * 1.1f) {
+                    playerStats.damage(damage);
+                }
+            }
+        } else if (distToPlayer < detectionRange) {
             // chase the player
             Vector3f direction = playerPos.subtract(enemyPos).normalizeLocal();
 
             if (distToPlayer < attackRange) {
-                // in attack range — stop and swing
+                // in range — start the swing telegraph instead of hitting instantly
                 if (timeSinceLastAttack >= attackCooldown) {
                     timeSinceLastAttack = 0f;
+                    attacking = true;
+                    attackWindupTimer = ATTACK_TELEGRAPH_DURATION;
                     playAnim("Attack");
-                    // land a hit on the player
-                    if (playerStats != null) {
-                        playerStats.damage(damage);
-                    }
                 }
             } else {
                 // chase the player, but slower while being knocked back
@@ -248,10 +306,39 @@ public class EnemyController {
         // knockback fades out over time, both in X/Z and the vertical hop
         if (kbMag > 0f) {
             knockbackTimer -= tpf;
-            float scale = FastMath.clamp(knockbackTimer / KNOCKBACK_TIME, 0f, 1f);
+            float scale = FastMath.clamp(knockbackTimer / KNOCKBACK_DURATION, 0f, 1f);
             knockback.multLocal(scale);
             // flush any tiny leftover values so they don't linger
             if (knockback.lengthSquared() < 0.05f) knockback.set(0f, 0f, 0f);
+        }
+
+        refreshCapsuleColor();
+    }
+
+    /**
+     * One material for the whole capsule — its color gets re-derived from the
+     * current state every frame. That both gives the telegraph its pulse and
+     * guarantees the hit flash always returns to the tier color (the old code
+     * set it red once and never restored it).
+     */
+    private void refreshCapsuleColor() {
+        if (capsuleMat == null) return;
+        ColorRGBA c;
+        if (damageFlashTimer > 0f) {
+            c = ColorRGBA.White;
+        } else if (attacking) {
+            // warning pulse — heartbeat toward hot red while the windup runs
+            float p = (FastMath.sin(attackWindupTimer * FastMath.TWO_PI * 3f) + 1f) * 0.5f;
+            matScratch.set(1f, 0.25f + 0.3f * p, 0.2f + 0.3f * p, 1f);
+            c = matScratch;
+        } else {
+            c = defaultColor;
+        }
+        // only poke the material when the color actually changed, so idle
+        // enemies don't re-upload the same uniform every frame
+        if (!c.equals(lastMatColor)) {
+            lastMatColor.set(c);
+            capsuleMat.setColor("Color", c);
         }
     }
 
@@ -262,11 +349,7 @@ public class EnemyController {
         if (dead) return;
 
         health -= amount;
-        damageFlashTimer = 0.15f;
-
-        if (originalMaterial != null) {
-            originalMaterial.setColor("Color", ColorRGBA.Red);
-        }
+        damageFlashTimer = HIT_FLASH_DURATION;
 
         // quick particle pop where the hit landed
         hitEmitter.setLocalTranslation(node.getWorldTranslation().add(0f, 0.7f, 0f));
@@ -282,7 +365,7 @@ public class EnemyController {
     /**
      * Applies a knockback impulse directed away from the attacker (horizontal X/Z)
      * plus a small vertical hop so the hit is visually readable. The impulse fades
-     * out over a short time (see {@link #KNOCKBACK_TIME}).
+     * out over a short time (see {@link #KNOCKBACK_DURATION}).
      *
      * @param awayDir normalized horizontal direction pushing the enemy away
      * @param force   magnitude of the push
@@ -290,21 +373,24 @@ public class EnemyController {
     public void applyKnockback(Vector3f awayDir, float force) {
         if (dead) return;
         knockback.set(awayDir.x * force, force * 0.5f, awayDir.z * force);
-        knockbackTimer = KNOCKBACK_TIME;
+        knockbackTimer = KNOCKBACK_DURATION;
     }
 
     public void applyKnockback(Vector3f awayDir) {
-        applyKnockback(awayDir, 7f);
+        applyKnockback(awayDir, KNOCKBACK_DEFAULT_FORCE);
     }
 
     private void die() {
         dead = true;
-        deathTimer = 0.5f;
+        deathTimer = DEATH_EFFECT_DURATION;
         physics.setWalkDirection(Vector3f.ZERO);
         playAnim("Death");
 
-        // shrink on death — cheap stand-in for a real death animation
-        node.scale(0.5f);
+        // big burst for the kill — chunkier than the little hit spark. The
+        // stage won't remove us until the timer above runs out (canRemove()).
+        deathEmitter.setLocalTranslation(node.getWorldTranslation().add(0f, 0.7f, 0f));
+        deathEmitter.setEnabled(true);
+        deathEmitter.emitAllParticles();
     }
 
     /**
@@ -313,6 +399,7 @@ public class EnemyController {
     public void cleanup(BulletAppState bulletAppState) {
         bulletAppState.getPhysicsSpace().remove(physics);
         hitEmitter.removeFromParent();
+        deathEmitter.removeFromParent();
         node.removeFromParent();
     }
 
@@ -369,6 +456,7 @@ public class EnemyController {
 
     // the plain getters
     public boolean isDead() { return dead; }
+    public boolean canRemove() { return removable; }
     public Vector3f getPosition() { return node.getWorldTranslation(); }
     public float getHealth() { return health; }
     public float getMaxHealth() { return maxHealth; }
