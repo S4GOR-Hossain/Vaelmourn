@@ -25,19 +25,32 @@ import java.util.Random;
  * Built with the same model-loaded approach as the original forest biome: palm
  * trees and stone models are loaded from Models/Environment/Forest and scattered
  * with physics collision. Comes after the snow biome (Frozen Depths).
+ *
+ * Variants 1-4 scale difficulty; variant 3 is the FAST stage — its enemies move
+ * at 2x the normal speed (nothing else about them changes).
  */
 public class JungleStage implements Stage {
 
     private static final float HALF_EXTENT = 50f;
+    private static final float FAST_STAGE_SPEED_MULTIPLIER = 2f; // Jungle 3 modifier
 
+    private final int variant;
     private Node stageNode;
     private AssetManager assetManager;
     private final List<RigidBodyControl> physicsObjects = new ArrayList<>();
 
+    public JungleStage() {
+        this(1);
+    }
+
+    public JungleStage(int variant) {
+        this.variant = Math.max(1, variant);
+    }
+
     @Override
     public void build(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState) {
         this.assetManager = assetManager;
-        stageNode = new Node("Jungle");
+        stageNode = new Node("Jungle" + variant);
         parentNode.attachChild(stageNode);
 
         buildGroundPlane(assetManager, bulletAppState);
@@ -58,8 +71,11 @@ public class JungleStage implements Stage {
     public List<EnemyController> spawnEnemies(AssetManager assetManager, Node parentNode,
                                                BulletAppState bulletAppState, int loopCount) {
         List<EnemyController> enemies = new ArrayList<>();
-        int enemyCount = 9 + (loopCount / 2);
-        Random rand = new Random(66 + loopCount);
+
+        boolean fast = variant == 3;
+        int enemyCount = 7 + variant + (loopCount / 2);
+        float scale = 1f + (variant - 1) * 0.35f;
+        Random rand = new Random(66 + variant * 7 + loopCount);
 
         for (int i = 0; i < enemyCount; i++) {
             float angle = (i / (float) enemyCount) * FastMath.TWO_PI;
@@ -69,8 +85,12 @@ public class JungleStage implements Stage {
 
             EnemyController enemy = new EnemyController(
                 assetManager, stageNode, bulletAppState,
-                new Vector3f(x, 5f, z), 3, loopCount
+                new Vector3f(x, 5f, z), 3, loopCount, scale
             );
+            // Jungle 3: speed-doubled hunters. Just movement — no stat inflation.
+            if (fast) {
+                enemy.setMoveSpeedMultiplier(FAST_STAGE_SPEED_MULTIPLIER);
+            }
             enemies.add(enemy);
         }
 
@@ -104,7 +124,7 @@ public class JungleStage implements Stage {
 
     @Override
     public String getName() {
-        return "Jungle";
+        return "Jungle " + variant;
     }
 
     @Override
@@ -161,7 +181,8 @@ public class JungleStage implements Stage {
     }
 
     private void buildJungle(AssetManager assetManager, BulletAppState bulletAppState) {
-        Random rand = new Random(42);
+        // variant re-seeds so each stage differs a bit while keeping the jungle feel
+        Random rand = new Random(42 + variant);
 
         // Heaviest mix: palms plus broad forest trees for a dense canopy.
         String[] treeModels = {

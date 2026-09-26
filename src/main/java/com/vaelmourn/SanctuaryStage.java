@@ -88,6 +88,12 @@ public class SanctuaryStage implements Stage {
         return 0;
     }
 
+    /** The Sanctuary is the game's safe hub — no enemies, always an open portal. */
+    @Override
+    public boolean isSafe() {
+        return true;
+    }
+
     private void buildGroundPlane(AssetManager assetManager, BulletAppState bulletAppState) {
         Box groundBox = new Box(40, 0.5f, 40);
         Geometry ground = new Geometry("SanctuaryGround", groundBox);

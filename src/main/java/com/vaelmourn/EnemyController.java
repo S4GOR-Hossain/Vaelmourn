@@ -63,7 +63,13 @@ public class EnemyController {
     private ColorRGBA lastMatColor = new ColorRGBA();
     private float damageFlashTimer = 0f;
 
-    private int tier; // tiers: 1=easy (green), 2=medium (orange), 3=hard (red)
+    private int tier; // tiers: 1=easy (green), 2=medium (orange), 3=hard (red), 4=elite (dark red)
+
+    // roguelike-stage knobs set by the spawning stage (never by the enemy itself)
+    private float variantScale = 1f;      // per-stage difficulty multiplier (1.0x -> 2x+)
+    private float moveSpeedMultiplier = 1f; // e.g. Jungle 3 makes enemies 2x faster
+    private float slowOnHit = 0f;         // seconds of player-slow this enemy's hits apply (Frozen 3)
+    private boolean boss = false;         // boss arenas spawn exactly one of these
 
     // stashing these so I can spawn in-world effects later
     private final AssetManager assetManager;
@@ -81,42 +87,76 @@ public class EnemyController {
 
     public EnemyController(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState,
                           Vector3f spawnPos, int tier, int loopCount) {
+        this(assetManager, parentNode, bulletAppState, spawnPos, tier, loopCount, 1f, false);
+    }
+
+    public EnemyController(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState,
+                          Vector3f spawnPos, int tier, int loopCount, float variantScale) {
+        this(assetManager, parentNode, bulletAppState, spawnPos, tier, loopCount, variantScale, false);
+    }
+
+    public EnemyController(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState,
+                          Vector3f spawnPos, int tier, int loopCount, float variantScale, boolean boss) {
         this.tier = tier;
         this.assetManager = assetManager;
         this.parentNode = parentNode;
+        this.variantScale = variantScale;
+        this.boss = boss;
 
-        // baseline stats picked per tier
-        float baseHealth = switch(tier) {
-            case 1 -> 55f;
-            case 2 -> 115f;
-            case 3 -> 180f;
-            default -> 60f;
-        };
+        // bosses are their own tier — big health pool, deliberate damage
+        float baseHealth;
+        float baseDamage;
+        if (boss) {
+            baseHealth = 900f;
+            baseDamage = 14f;
+        } else {
+            // baseline stats picked per tier
+            baseHealth = switch(tier) {
+                case 1 -> 55f;
+                case 2 -> 115f;
+                case 3 -> 180f;
+                case 4 -> 260f;
+                default -> 60f;
+            };
 
-        float baseDamage = switch(tier) {
-            case 1 -> 2f;
-            case 2 -> 5f;
-            case 3 -> 10f;
-            default -> 2f;
-        };
+            baseDamage = switch(tier) {
+                case 1 -> 2f;
+                case 2 -> 5f;
+                case 3 -> 10f;
+                case 4 -> 16f;
+                default -> 2f;
+            };
+        }
+
+        // per-stage difficulty scaling on top of the base stats
+        baseHealth *= variantScale;
+        baseDamage *= variantScale;
 
         // scale health and damage with loop count
         float loopScalar = (float) Math.pow(1.5, loopCount);
         this.maxHealth = baseHealth * loopScalar;
         this.health = maxHealth;
         this.damage = baseDamage * loopScalar;
-        this.moveSpeed = 4f + (tier - 1) * 1.5f;
+        this.moveSpeed = boss ? 3.2f : 4f + (tier - 1) * 1.5f;
 
-        // build the placeholder capsule visual
-        node = new Node("Enemy_Tier" + tier);
-        ColorRGBA color = switch(tier) {
-            case 1 -> ColorRGBA.Green;
-            case 2 -> ColorRGBA.Orange;
-            case 3 -> ColorRGBA.Red;
-            default -> ColorRGBA.Gray;
-        };
+        // build the placeholder capsule visual (bosses get a bigger, crowned one)
+        node = new Node(boss ? "Boss" : "Enemy_Tier" + tier);
+        float capsuleRadius = boss ? 0.65f : 0.4f;
+        float capsuleHeight = boss ? 2.2f : 1.4f;
+        ColorRGBA color;
+        if (boss) {
+            color = new ColorRGBA(0.55f, 0.2f, 0.75f, 1f); // ominous dark violet
+        } else {
+            color = switch(tier) {
+                case 1 -> ColorRGBA.Green;
+                case 2 -> ColorRGBA.Orange;
+                case 3 -> ColorRGBA.Red;
+                case 4 -> new ColorRGBA(0.6f, 0.15f, 0.15f, 1f); // dark red elite
+                default -> ColorRGBA.Gray;
+            };
+        }
 
-        Cylinder capShape = new Cylinder(2, 16, 0.4f, 1.4f, true);
+        Cylinder capShape = new Cylinder(2, 16, capsuleRadius, capsuleHeight, true);
         Geometry capsule = new Geometry("EnemyCapsule", capShape);
         Material mat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
         mat.setColor("Color", color);
@@ -128,14 +168,26 @@ public class EnemyController {
         // Minie's BetterCharacterControl anchors the model's origin at the feet
         // (the physics capsule base), but our cylinder is centered on its origin —
         // lifted it by half its height so the lower half doesn't sink into the ground.
-        capsule.setLocalTranslation(0f, 0.7f, 0f);
+        capsule.setLocalTranslation(0f, capsuleHeight / 2f, 0f);
         node.attachChild(capsule);
+        // bosses wear a small crown so they read as a boss at a glance
+        if (boss) {
+            Cylinder crownShape = new Cylinder(2, 12, 0.35f, 0.5f, true);
+            Geometry crown = new Geometry("BossCrown", crownShape);
+            Material crownMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
+            crownMat.setColor("Color", new ColorRGBA(0.95f, 0.8f, 0.25f, 1f));
+            crown.setMaterial(crownMat);
+            crown.rotate(FastMath.HALF_PI, 0f, 0f);
+            crown.setLocalTranslation(0f, capsuleHeight + 0.25f, 0f);
+            node.attachChild(crown);
+        }
         this.capsuleMat = mat;
         this.defaultColor = color;
 
         // health bar hovering above the capsule, always turned toward the camera
+        this.healthBarBaseWidth = boss ? 2.6f : 1.2f;
         Node healthBarNode = new Node("HealthBar");
-        healthBarNode.setLocalTranslation(0f, 2.0f, 0f);
+        healthBarNode.setLocalTranslation(0f, (boss ? 3.4f : 2.0f), 0f);
         healthBarNode.addControl(new BillboardControl());
 
         Geometry bg = new Geometry("HPBarBG", new Quad(healthBarBaseWidth, 0.16f));
@@ -203,7 +255,9 @@ public class EnemyController {
         parentNode.attachChild(node);
 
         // physics rig
-        physics = new BetterCharacterControl(0.4f, 1.4f, 0.8f);
+        float physRadius = boss ? 0.7f : 0.4f;
+        float physHeight = boss ? 2.2f : 1.4f;
+        physics = new BetterCharacterControl(physRadius, physHeight, 0.8f);
         physics.setGravity(new Vector3f(0, -30f, 0));
         physics.warp(spawnPos);
         node.addControl(physics);
@@ -277,6 +331,10 @@ public class EnemyController {
                 attacking = false;
                 if (playerStats != null && enemyPos.distance(playerPos) <= attackRange * 1.1f) {
                     playerStats.damage(damage);
+                    // Frozen Depths 3 hits chill the player briefly (non-stacking)
+                    if (slowOnHit > 0f) {
+                        playerStats.applySlow(0.35f, slowOnHit);
+                    }
                 }
             }
         } else if (distToPlayer < detectionRange) {
@@ -293,7 +351,7 @@ public class EnemyController {
                 }
             } else {
                 // chase the player, but slower while being knocked back
-                desiredMove = direction.mult(moveSpeed * (1f - kbLinger * 0.85f));
+                desiredMove = direction.mult(moveSpeed * moveSpeedMultiplier * (1f - kbLinger * 0.85f));
                 playAnim("Walk");
             }
         } else {
@@ -463,4 +521,19 @@ public class EnemyController {
     public float getAttackDamage() { return damage; }
     public Node getNode() { return node; }
     public BetterCharacterControl getPhysics() { return physics; }
+
+    // ---- stage-modifier hooks (called by the spawning stage) ----
+
+    /** Jungle 3 makes its enemies 2x faster than the surrounding stages. */
+    public void setMoveSpeedMultiplier(float multiplier) {
+        this.moveSpeedMultiplier = Math.max(0f, multiplier);
+    }
+
+    /** Frozen Depths 3: each landed hit slows the player for this many seconds. */
+    public void setSlowOnHit(float seconds) {
+        this.slowOnHit = Math.max(0f, seconds);
+    }
+
+    /** Arena bosses are one-of-a-kind — the manager gives extra reward for them. */
+    public boolean isBoss() { return boss; }
 }

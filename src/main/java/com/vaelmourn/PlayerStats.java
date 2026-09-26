@@ -59,6 +59,9 @@ public class PlayerStats {
     private float critPower = 0f, critTime = 0f, critDuration = 0f;          // +crit chance
     private float regenRate = 0f, regenTime = 0f, regenDuration = 0f, regenAccum = 0f; // heal over time
 
+    // ---- stage debuff: slow (Frozen Depths 3 slaps this on the player) ----
+    private float slowPower = 0f, slowTime = 0f;
+
     private final Random random = new Random();
 
     // ================= accessors =================
@@ -80,9 +83,23 @@ public class PlayerStats {
         return baseArmor + defenseFromEquipment();
     }
 
-    /** Movement speed; leggings/boots add flat, speed potion adds a % on top. */
+    /** Movement speed; leggings/boots add flat, speed potion adds a %, slow debuff removes one. */
     public float getMovementSpeed() {
-        return (baseMoveSpeed + moveSpeedFromEquipment()) * (1f + speedPower);
+        return (baseMoveSpeed + moveSpeedFromEquipment()) * (1f + speedPower) * getSlowMultiplier();
+    }
+
+    /** 1.0 when normal, below 1.0 while a stage slow debuff is active. */
+    public float getSlowMultiplier() {
+        return slowTime > 0f ? Math.max(0.35f, 1f - slowPower) : 1f;
+    }
+
+    /**
+     * Applies the Frozen Depths "enemy hit slows you" effect. Refreshes the
+     * duration but never grows the magnitude, so it can't be stacked infinitely.
+     */
+    public void applySlow(float magnitude, float duration) {
+        slowPower = Math.max(slowPower, magnitude);
+        slowTime = Math.max(slowTime, duration);
     }
 
     /** What the currently readied weapon swings per second, buffs included. */
@@ -242,6 +259,10 @@ public class PlayerStats {
                 regenAccum -= healed;
             }
             if (regenTime <= 0f) { regenRate = 0f; regenDuration = 0f; }
+        }
+        if (slowTime > 0f) {
+            slowTime -= tpf;
+            if (slowTime <= 0f) slowPower = 0f;
         }
     }
 

@@ -362,13 +362,40 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         playerStats.addExperience(40f);
 
         // ---- Stage / roguelike system ----
+        // Fixed 29-stage rotation: each biome = 4 normal stages -> boss arena ->
+        // safe hub (minus the Kingdom Court, which only has 3 regular stages),
+        // looping back to a fresh Sanctuary after the Fallen King.
         stageManager = new StageManager(assetManager, rootNode, bulletAppState, this);
         stageManager.setPlayerStats(playerStats);
-        stageManager.addStage(new SanctuaryStage());
-        stageManager.addStage(new DarkwoodStage());
-        stageManager.addStage(new AshenWastesStage());
-        stageManager.addStage(new FrozenDepthsStage());
-        stageManager.addStage(new JungleStage());
+        stageManager.addStage(new SanctuaryStage());                 // 0: hub
+        stageManager.addStage(new DarkwoodStage(1));                 // 1
+        stageManager.addStage(new DarkwoodStage(2));                 // 2
+        stageManager.addStage(new DarkwoodStage(3));                 // 3
+        stageManager.addStage(new DarkwoodStage(4));                 // 4
+        stageManager.addStage(new TreeWardenBossStage());            // 5: boss
+        stageManager.addStage(new SanctuaryStage());                 // 6: hub
+        stageManager.addStage(new AshenWastesStage(1));              // 7
+        stageManager.addStage(new AshenWastesStage(2));              // 8
+        stageManager.addStage(new AshenWastesStage(3));              // 9: horde
+        stageManager.addStage(new AshenWastesStage(4));              // 10
+        stageManager.addStage(new HellhoundBossStage());             // 11: boss
+        stageManager.addStage(new SanctuaryStage());                 // 12: hub
+        stageManager.addStage(new FrozenDepthsStage(1));             // 13
+        stageManager.addStage(new FrozenDepthsStage(2));             // 14
+        stageManager.addStage(new FrozenDepthsStage(3));             // 15: slowing
+        stageManager.addStage(new FrozenDepthsStage(4));             // 16
+        stageManager.addStage(new FrostGiantBossStage());            // 17: boss
+        stageManager.addStage(new SanctuaryStage());                 // 18: hub
+        stageManager.addStage(new JungleStage(1));                   // 19
+        stageManager.addStage(new JungleStage(2));                   // 20
+        stageManager.addStage(new JungleStage(3));                   // 21: double speed
+        stageManager.addStage(new JungleStage(4));                   // 22
+        stageManager.addStage(new BeekeeperBossStage());             // 23: boss
+        stageManager.addStage(new SanctuaryStage());                 // 24: hub
+        stageManager.addStage(new DarkRoyaleKingdomCourtStage(1));   // 25
+        stageManager.addStage(new DarkRoyaleKingdomCourtStage(2));   // 26
+        stageManager.addStage(new DarkRoyaleKingdomCourtStage(3));   // 27
+        stageManager.addStage(new FallenKingBossStage());            // 28: final boss
         stageManager.loadInitialStage(playerControl);
         combat.setEnemies(stageManager.getActiveEnemies());
 
@@ -778,19 +805,44 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         inputManager.addMapping("Hotbar3", new KeyTrigger(KeyInput.KEY_4));
         inputManager.addMapping("Hotbar4", new KeyTrigger(KeyInput.KEY_5));
 
+        // dev shortcut: L warps straight to the next stage without fighting
+        inputManager.addMapping("DevSkipStage", new KeyTrigger(KeyInput.KEY_L));
+
         inputManager.addListener(
                 this,
                 "Left", "Right", "Forward", "Backward",
                 "Jump", "Dodge", "Crouch",
                 "AttackPrimary", "AttackSecondary",
                 "Inventory", "Interact",
-                "Hotbar0", "Hotbar1", "Hotbar2", "Hotbar3", "Hotbar4"
+                "Hotbar0", "Hotbar1", "Hotbar2", "Hotbar3", "Hotbar4",
+                "DevSkipStage"
         );
+    }
+
+    /**
+     * Dev tool bound to L: teleports to the next stage in the rotation. Cleanup
+     * of the stage we're leaving (enemies, portal, physics) all happens inside
+     * advanceStage(), so it's as safe as walking through a portal — just faster.
+     */
+    private void devSkipStage() {
+        if (stageManager == null) return;
+        System.out.println("[DEV] L pressed — skipping past " + stageManager.getCurrentStageName());
+        stageManager.advanceStage();
+        // teleport to the new stage's spawn point instead of dropping in mid-air
+        // (normally you'd enter via the portal, which the skip bypasses)
+        if (stageManager.getCurrentStage() != null && playerControl != null) {
+            playerControl.warp(stageManager.getCurrentStage().getPlayerSpawnPoint());
+        }
     }
 
     @Override
     public void onAction(String name, boolean isPressed, float tpf) {
         switch (name) {
+            case "DevSkipStage":
+                // dev tool: hop to the next stage regardless of enemies left
+                if (isPressed) devSkipStage();
+                return;
+
             case "Inventory":
                 if (isPressed) toggleInventory();
                 return;

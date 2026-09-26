@@ -68,4 +68,12 @@ public interface Stage {
      * @return 0-based stage index (0=Sanctuary, 1=Darkwood, 2=Ashen Wastes, 3=Frozen Depths)
      */
     int getStageIndex();
+
+    /**
+     * @return true for non-combat/preparation stages (Sanctuary-style hubs).
+     * Safe stages never spawn enemies and always keep their exit portal open.
+     */
+    default boolean isSafe() {
+        return false;
+    }
 }

@@ -18,38 +18,45 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * AshenWastesStage — Stage 2: Volcanic desert with tier-2 enemies.
- * Variants 1-4 scale difficulty; variant 3 is the ENEMY HORDE stage — a flood
- * of individually weaker enemies instead of a handful of strong ones.
+ * Dark Royale Kingdom Court — Stage 5 biome (last biome, guarded by the king).
+ * Unlike the earlier biomes it only has 3 regular stages (variants 1-3) before
+ * the Fallen King boss arena. Dark stone chambers ringed with tall pillars and
+ * overturned court ornaments.
  */
-public class AshenWastesStage implements Stage {
+public class DarkRoyaleKingdomCourtStage implements Stage {
 
-    private static final float HALF_EXTENT = 55f;
-    // horde keeps the enemy count bounded so the spawn pile doesn't tank the frame rate
-    private static final int HORDE_ENEMY_COUNT = 22;
-    // horde fodder hits far softer than the surrounding stages' regular troops
-    private static final float HORDE_DIFFICULTY_SCALE = 0.55f;
+    private static final float HALF_EXTENT = 60f;
+
+    private static final String[] STONE_MODELS = {
+            "Models/Environment/Forest/stone_tallA.glb",
+            "Models/Environment/Forest/stone_tallB.glb",
+            "Models/Environment/Forest/stone_tallC.glb",
+            "Models/Environment/Forest/stone_tallD.glb",
+            "Models/Environment/Forest/stone_largeA.glb",
+            "Models/Environment/Forest/stone_largeB.glb",
+            "Models/Environment/Forest/stone_largeC.glb"
+    };
 
     private final int variant;
     private Node stageNode;
     private final List<RigidBodyControl> physicsObjects = new ArrayList<>();
 
-    public AshenWastesStage() {
+    public DarkRoyaleKingdomCourtStage() {
         this(1);
     }
 
-    public AshenWastesStage(int variant) {
+    public DarkRoyaleKingdomCourtStage(int variant) {
         this.variant = Math.max(1, variant);
     }
 
     @Override
     public void build(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState) {
-        stageNode = new Node("AshenWastes" + variant);
+        stageNode = new Node("DarkRoyaleKingdomCourt" + variant);
         parentNode.attachChild(stageNode);
 
         buildGroundPlane(assetManager, bulletAppState);
         buildBoundaryWalls(bulletAppState);
-        buildDecoration(assetManager, bulletAppState);
+        buildCourt(assetManager, bulletAppState);
     }
 
     @Override
@@ -66,20 +73,21 @@ public class AshenWastesStage implements Stage {
                                                BulletAppState bulletAppState, int loopCount) {
         List<EnemyController> enemies = new ArrayList<>();
 
-        boolean horde = variant == 3;
-        int enemyCount = horde ? HORDE_ENEMY_COUNT : 5 + variant + (loopCount / 2);
-        float scale = horde ? HORDE_DIFFICULTY_SCALE : 1f + (variant - 1) * 0.4f;
-        Random rand = new Random(43 + variant * 7 + loopCount);
+        // the court gets mean fast — every stage hosts tier-3 elites at a heavy
+        // scale multiplier, more of them per stage and per loop
+        int enemyCount = 8 + variant + (loopCount / 2);
+        float scale = 1.75f + variant * 0.35f;
+        Random rand = new Random(88 + variant * 7 + loopCount);
 
         for (int i = 0; i < enemyCount; i++) {
             float angle = (i / (float) enemyCount) * FastMath.TWO_PI;
-            float radius = 15f + rand.nextFloat() * 15f;
+            float radius = 15f + rand.nextFloat() * 12f;
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
 
             EnemyController enemy = new EnemyController(
                 assetManager, stageNode, bulletAppState,
-                new Vector3f(x, 5f, z), 2, loopCount, scale
+                new Vector3f(x, 5f, z), 3, loopCount, scale
             );
             enemies.add(enemy);
         }
@@ -94,17 +102,17 @@ public class AshenWastesStage implements Stage {
 
     @Override
     public ColorRGBA getSkyColor() {
-        return new ColorRGBA(0.6f, 0.35f, 0.15f, 1f); // orange-red haze from the burn-off
+        return new ColorRGBA(0.12f, 0.12f, 0.2f, 1f); // smothering dark royal night
     }
 
     @Override
     public ColorRGBA getAmbientColor() {
-        return new ColorRGBA(0.8f, 0.5f, 0.3f, 1f).mult(0.6f);
+        return new ColorRGBA(0.4f, 0.38f, 0.55f, 1f).mult(0.6f); // hushed violet torchlight
     }
 
     @Override
     public Vector3f getSunDirection() {
-        return new Vector3f(-0.2f, -1f, -0.1f).normalizeLocal(); // almost straight overhead, harsh shadows
+        return new Vector3f(-0.4f, -0.75f, -0.25f).normalizeLocal();
     }
 
     @Override
@@ -114,19 +122,20 @@ public class AshenWastesStage implements Stage {
 
     @Override
     public String getName() {
-        return "Ashen Wastes " + variant;
+        // display kept short for the HUD: "Kingdom Court 1/2/3"
+        return "Kingdom Court " + variant;
     }
 
     @Override
     public int getStageIndex() {
-        return 2;
+        return 8;
     }
 
     private void buildGroundPlane(AssetManager assetManager, BulletAppState bulletAppState) {
         Box groundBox = new Box(HALF_EXTENT, 0.5f, HALF_EXTENT);
-        Geometry ground = new Geometry("AshenWastesGround", groundBox);
+        Geometry ground = new Geometry("KingdomCourtGround", groundBox);
         Material mat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-        mat.setColor("Color", new ColorRGBA(0.45f, 0.30f, 0.18f, 1f)); // orange-brown scorched dirt
+        mat.setColor("Color", new ColorRGBA(0.2f, 0.2f, 0.26f, 1f)); // hewn midnight stone
         ground.setMaterial(mat);
         ground.setLocalTranslation(0, -0.5f, 0);
         stageNode.attachChild(ground);
@@ -160,64 +169,50 @@ public class AshenWastesStage implements Stage {
         physicsObjects.add(physics);
     }
 
-    private void buildDecoration(AssetManager assetManager, BulletAppState bulletAppState) {
-        // variant re-seeds layout so each pass through the wastes shifts slightly
-        Random rand = new Random(100 + variant);
+    private void buildCourt(AssetManager assetManager, BulletAppState bulletAppState) {
+        // variant re-seeds the ornament layout
+        Random rand = new Random(102 + variant);
 
-        // Lava pools dotted across the field
-        for (int i = 0; i < 12; i++) {
-            float x = (rand.nextFloat() - 0.5f) * 90f;
-            float z = (rand.nextFloat() - 0.5f) * 90f;
+        // tall stone pillars mark the court—dense enough to feel royal, spaced
+        // enough to keep the middle clear for fighting
+        for (int i = 0; i < 24; i++) {
+            float x = (rand.nextFloat() - 0.5f) * 100f;
+            float z = (rand.nextFloat() - 0.5f) * 100f;
+            if (new Vector3f(x, 0, z).length() < 14f) {
+                continue;
+            }
 
-            Box lavaBox = new Box(2f + rand.nextFloat() * 1f, 0.1f, 2f + rand.nextFloat() * 1f);
-            Geometry lava = new Geometry("Lava_" + i, lavaBox);
-            Material lavaMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-            lavaMat.setColor("Color", new ColorRGBA(0.9f, 0.3f, 0.05f, 1f));
-            lava.setMaterial(lavaMat);
-            lava.setLocalTranslation(x, 0.05f, z);
-            stageNode.attachChild(lava);
+            String chosenModel = STONE_MODELS[rand.nextInt(STONE_MODELS.length)];
+            Spatial stone = assetManager.loadModel(chosenModel);
+
+            stone.setLocalTranslation(x, 0, z);
+            stone.rotate(0, rand.nextFloat() * FastMath.TWO_PI, 0);
+            float size = 5f + rand.nextFloat() * 4f;
+            stone.setLocalScale(size);
+            stageNode.attachChild(stone);
+
+            BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(size * 0.35f, size * 0.4f, size * 0.35f));
+            RigidBodyControl physics = new RigidBodyControl(shape, 0);
+            physics.setPhysicsLocation(new Vector3f(x, size * 0.35f, z));
+            bulletAppState.getPhysicsSpace().add(physics);
+            physicsObjects.add(physics);
         }
 
-        // Use the Forest pack's real stone models as rocky outcrops instead of
-        // boxy "pillars". No trees here — this biome is barren.
-        String[] stoneModels = {
-                "Models/Environment/Forest/stone_tallA.glb",
-                "Models/Environment/Forest/stone_tallB.glb",
-                "Models/Environment/Forest/stone_tallC.glb",
-                "Models/Environment/Forest/stone_tallD.glb",
-                "Models/Environment/Forest/stone_largeA.glb",
-                "Models/Environment/Forest/stone_largeB.glb",
-                "Models/Environment/Forest/stone_largeC.glb"
-        };
-
-        for (int i = 0; i < 20; i++) {
+        // a few wide, flat dais slabs to break up the floor (visual only)
+        for (int i = 0; i < 8; i++) {
             float x = (rand.nextFloat() - 0.5f) * 90f;
             float z = (rand.nextFloat() - 0.5f) * 90f;
-            if (new Vector3f(x, 0, z).length() < 12f) continue;
+            if (new Vector3f(x, 0, z).length() < 16f) {
+                continue;
+            }
 
-            float size = 3.6f + rand.nextFloat() * 4.8f;
-            placeStone(x, z, size, rand, stoneModels, assetManager, bulletAppState);
+            Box slabBox = new Box(2.5f + rand.nextFloat() * 2.5f, 0.25f, 2.5f + rand.nextFloat() * 2.5f);
+            Geometry slab = new Geometry("CourtSlab_" + i, slabBox);
+            Material slabMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
+            slabMat.setColor("Color", new ColorRGBA(0.24f, 0.22f, 0.3f, 1f));
+            slab.setMaterial(slabMat);
+            slab.setLocalTranslation(x, 0.25f, z);
+            stageNode.attachChild(slab);
         }
-    }
-
-    private void placeStone(float x, float z, float size, Random rand, String[] stoneModels,
-                            AssetManager assetManager, BulletAppState bulletAppState) {
-        String chosenModel = stoneModels[rand.nextInt(stoneModels.length)];
-        Spatial stone = assetManager.loadModel(chosenModel);
-
-        stone.setLocalTranslation(x, 0, z);
-        stone.rotate(0, rand.nextFloat() * FastMath.TWO_PI, 0);
-        stone.setLocalScale(size);
-
-        stageNode.attachChild(stone);
-
-        // Rough box collider matching each rock's footprint so the player
-        // can't just walk straight through the outcrops.
-        BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(size * 0.35f, size * 0.4f, size * 0.35f));
-        RigidBodyControl physics = new RigidBodyControl(shape, 0);
-        physics.setPhysicsLocation(new Vector3f(x, size * 0.35f, z));
-
-        bulletAppState.getPhysicsSpace().add(physics);
-        physicsObjects.add(physics);
     }
 }

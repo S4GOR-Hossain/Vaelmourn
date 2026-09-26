@@ -22,15 +22,28 @@ import java.util.Random;
 
 /**
  * DarkwoodStage — Stage 1: Dark forest with tier-1 enemies.
+ * Variants 1-4 scale enemy difficulty and re-seed the tree layout slightly,
+ * so later stages feel like the same woods that have gotten meaner.
  */
 public class DarkwoodStage implements Stage {
 
+    private static final float HALF_EXTENT = 60f;
+
+    private final int variant;
     private Node stageNode;
     private final List<RigidBodyControl> physicsObjects = new ArrayList<>();
 
+    public DarkwoodStage() {
+        this(1);
+    }
+
+    public DarkwoodStage(int variant) {
+        this.variant = Math.max(1, variant);
+    }
+
     @Override
     public void build(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState) {
-        stageNode = new Node("Darkwood");
+        stageNode = new Node("Darkwood" + variant);
         parentNode.attachChild(stageNode);
 
         buildGroundPlane(assetManager, bulletAppState);
@@ -51,8 +64,12 @@ public class DarkwoodStage implements Stage {
     public List<EnemyController> spawnEnemies(AssetManager assetManager, Node parentNode,
                                                BulletAppState bulletAppState, int loopCount) {
         List<EnemyController> enemies = new ArrayList<>();
-        int enemyCount = 5 + (loopCount / 2);
-        Random rand = new Random(42 + loopCount);
+
+        // difficulty curve inside the biome: more of them, and they hit harder
+        int enemyCount = 4 + variant + (loopCount / 2);
+        int tier = Math.min(3, 1 + (variant - 1) / 2);
+        float scale = 1f + (variant - 1) * 0.35f;
+        Random rand = new Random(42 + variant * 7 + loopCount);
 
         for (int i = 0; i < enemyCount; i++) {
             float angle = (i / (float) enemyCount) * FastMath.TWO_PI;
@@ -62,7 +79,7 @@ public class DarkwoodStage implements Stage {
 
             EnemyController enemy = new EnemyController(
                 assetManager, stageNode, bulletAppState,
-                new Vector3f(x, 5f, z), 1, loopCount
+                new Vector3f(x, 5f, z), tier, loopCount, scale
             );
             enemies.add(enemy);
         }
@@ -92,12 +109,12 @@ public class DarkwoodStage implements Stage {
 
     @Override
     public float getHalfExtent() {
-        return 60f;
+        return HALF_EXTENT;
     }
 
     @Override
     public String getName() {
-        return "Darkwood";
+        return "Darkwood " + variant;
     }
 
     @Override
@@ -106,14 +123,14 @@ public class DarkwoodStage implements Stage {
     }
 
     private void buildGroundPlane(AssetManager assetManager, BulletAppState bulletAppState) {
-        Box groundBox = new Box(60, 0.5f, 60);
+        Box groundBox = new Box(HALF_EXTENT, 0.5f, HALF_EXTENT);
         Geometry ground = new Geometry("DarkwoodGround", groundBox);
         Material mat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
         mat.setColor("Color", new ColorRGBA(0.2f, 0.3f, 0.15f, 1f)); // dark mossy green
         ground.setMaterial(mat);
         ground.setLocalTranslation(0, -0.5f, 0);
         stageNode.attachChild(ground);
-        BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(60, 0.5f, 60));
+        BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(HALF_EXTENT, 0.5f, HALF_EXTENT));
         RigidBodyControl physics = new RigidBodyControl(shape, 0);
         physics.setPhysicsLocation(new Vector3f(0, -0.5f, 0));
         bulletAppState.getPhysicsSpace().add(physics);
@@ -124,14 +141,14 @@ public class DarkwoodStage implements Stage {
         float wallHeight = 10f;
         float wallThickness = 1f;
 
-        createWall(new Vector3f(0, wallHeight / 2f, 60),
-                   new Vector3f(60, wallHeight / 2f, wallThickness), bulletAppState);
-        createWall(new Vector3f(0, wallHeight / 2f, -60),
-                   new Vector3f(60, wallHeight / 2f, wallThickness), bulletAppState);
-        createWall(new Vector3f(60, wallHeight / 2f, 0),
-                   new Vector3f(wallThickness, wallHeight / 2f, 60), bulletAppState);
-        createWall(new Vector3f(-60, wallHeight / 2f, 0),
-                   new Vector3f(wallThickness, wallHeight / 2f, 60), bulletAppState);
+        createWall(new Vector3f(0, wallHeight / 2f, HALF_EXTENT),
+                   new Vector3f(HALF_EXTENT, wallHeight / 2f, wallThickness), bulletAppState);
+        createWall(new Vector3f(0, wallHeight / 2f, -HALF_EXTENT),
+                   new Vector3f(HALF_EXTENT, wallHeight / 2f, wallThickness), bulletAppState);
+        createWall(new Vector3f(HALF_EXTENT, wallHeight / 2f, 0),
+                   new Vector3f(wallThickness, wallHeight / 2f, HALF_EXTENT), bulletAppState);
+        createWall(new Vector3f(-HALF_EXTENT, wallHeight / 2f, 0),
+                   new Vector3f(wallThickness, wallHeight / 2f, HALF_EXTENT), bulletAppState);
     }
 
     private void createWall(Vector3f position, Vector3f halfExtents, BulletAppState bulletAppState) {
@@ -143,7 +160,9 @@ public class DarkwoodStage implements Stage {
     }
 
     private void buildDecoration(AssetManager assetManager, BulletAppState bulletAppState) {
-        Random rand = new Random(99);
+        // the variant re-seeds the layout so each stage is the same woods with a
+        // slightly different tree arrangement (the "slight variation" between stages)
+        Random rand = new Random(99 + variant);
 
         // Dark forest: only pull from a handful of tree-pack models (3-4 types,
         // repeated randomly) so no single tree stands out. They carry their own

@@ -22,15 +22,29 @@ import java.util.Random;
 
 /**
  * FrozenDepthsStage — Stage 3: Icy tundra with tier-3 enemies.
+ * Variants 1-4 scale difficulty; variant 3 is the SLOWING stage — every landed
+ * enemy hit chills the player for ~2 seconds of reduced movement.
  */
 public class FrozenDepthsStage implements Stage {
 
+    private static final float HALF_EXTENT = 50f;
+    private static final float SLOW_ON_HIT_SECONDS = 2f; // Frozen 3 modifier duration
+
+    private final int variant;
     private Node stageNode;
     private final List<RigidBodyControl> physicsObjects = new ArrayList<>();
 
+    public FrozenDepthsStage() {
+        this(1);
+    }
+
+    public FrozenDepthsStage(int variant) {
+        this.variant = Math.max(1, variant);
+    }
+
     @Override
     public void build(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState) {
-        stageNode = new Node("FrozenDepths");
+        stageNode = new Node("FrozenDepths" + variant);
         parentNode.attachChild(stageNode);
 
         buildGroundPlane(assetManager, bulletAppState);
@@ -51,8 +65,11 @@ public class FrozenDepthsStage implements Stage {
     public List<EnemyController> spawnEnemies(AssetManager assetManager, Node parentNode,
                                                BulletAppState bulletAppState, int loopCount) {
         List<EnemyController> enemies = new ArrayList<>();
-        int enemyCount = 8 + (loopCount / 2);
-        Random rand = new Random(44 + loopCount);
+
+        boolean slows = variant == 3;
+        int enemyCount = 6 + variant + (loopCount / 2);
+        float scale = 1f + (variant - 1) * 0.4f;
+        Random rand = new Random(44 + variant * 7 + loopCount);
 
         for (int i = 0; i < enemyCount; i++) {
             float angle = (i / (float) enemyCount) * FastMath.TWO_PI;
@@ -62,8 +79,13 @@ public class FrozenDepthsStage implements Stage {
 
             EnemyController enemy = new EnemyController(
                 assetManager, stageNode, bulletAppState,
-                new Vector3f(x, 5f, z), 3, loopCount
+                new Vector3f(x, 5f, z), 3, loopCount, scale
             );
+            // Frozen 3: every hit chills the player for a couple of seconds.
+            // Only this stage sets it, so the modifier never leaks elsewhere.
+            if (slows) {
+                enemy.setSlowOnHit(SLOW_ON_HIT_SECONDS);
+            }
             enemies.add(enemy);
         }
 
@@ -92,12 +114,12 @@ public class FrozenDepthsStage implements Stage {
 
     @Override
     public float getHalfExtent() {
-        return 50f;
+        return HALF_EXTENT;
     }
 
     @Override
     public String getName() {
-        return "Frozen Depths";
+        return "Frozen Depths " + variant;
     }
 
     @Override
@@ -106,7 +128,7 @@ public class FrozenDepthsStage implements Stage {
     }
 
     private void buildGroundPlane(AssetManager assetManager, BulletAppState bulletAppState) {
-        Box groundBox = new Box(50, 0.5f, 50);
+        Box groundBox = new Box(HALF_EXTENT, 0.5f, HALF_EXTENT);
         Geometry ground = new Geometry("FrozenDepthsGround", groundBox);
         Material groundMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
         groundMat.setColor("Color", new ColorRGBA(0.75f, 0.85f, 0.95f, 1f)); // icy blue-white snowpack
@@ -114,7 +136,7 @@ public class FrozenDepthsStage implements Stage {
         ground.setLocalTranslation(0, -0.5f, 0);
         stageNode.attachChild(ground);
 
-        BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(50, 0.5f, 50));
+        BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(HALF_EXTENT, 0.5f, HALF_EXTENT));
         RigidBodyControl physics = new RigidBodyControl(shape, 0);
         physics.setPhysicsLocation(new Vector3f(0, -0.5f, 0));
         bulletAppState.getPhysicsSpace().add(physics);
@@ -125,14 +147,14 @@ public class FrozenDepthsStage implements Stage {
         float wallHeight = 10f;
         float wallThickness = 1f;
 
-        createWall(new Vector3f(0, wallHeight / 2f, 50),
-                   new Vector3f(50, wallHeight / 2f, wallThickness), bulletAppState);
-        createWall(new Vector3f(0, wallHeight / 2f, -50),
-                   new Vector3f(50, wallHeight / 2f, wallThickness), bulletAppState);
-        createWall(new Vector3f(50, wallHeight / 2f, 0),
-                   new Vector3f(wallThickness, wallHeight / 2f, 50), bulletAppState);
-        createWall(new Vector3f(-50, wallHeight / 2f, 0),
-                   new Vector3f(wallThickness, wallHeight / 2f, 50), bulletAppState);
+        createWall(new Vector3f(0, wallHeight / 2f, HALF_EXTENT),
+                   new Vector3f(HALF_EXTENT, wallHeight / 2f, wallThickness), bulletAppState);
+        createWall(new Vector3f(0, wallHeight / 2f, -HALF_EXTENT),
+                   new Vector3f(HALF_EXTENT, wallHeight / 2f, wallThickness), bulletAppState);
+        createWall(new Vector3f(HALF_EXTENT, wallHeight / 2f, 0),
+                   new Vector3f(wallThickness, wallHeight / 2f, HALF_EXTENT), bulletAppState);
+        createWall(new Vector3f(-HALF_EXTENT, wallHeight / 2f, 0),
+                   new Vector3f(wallThickness, wallHeight / 2f, HALF_EXTENT), bulletAppState);
     }
 
     private void createWall(Vector3f position, Vector3f halfExtents, BulletAppState bulletAppState) {
@@ -144,7 +166,8 @@ public class FrozenDepthsStage implements Stage {
     }
 
     private void buildDecoration(AssetManager assetManager, BulletAppState bulletAppState) {
-        Random rand = new Random(101);
+        // variant re-seeds layout so each pass through the tundra shifts slightly
+        Random rand = new Random(101 + variant);
 
         // Cone-mesh ice spikes — sharper and more fitting than the boxy pillars.
         for (int i = 0; i < 10; i++) {

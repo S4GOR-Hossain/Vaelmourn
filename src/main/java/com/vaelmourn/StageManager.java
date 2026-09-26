@@ -59,8 +59,25 @@ public class StageManager {
         }
 
         currentStageIndex = 0;
-        currentStage = stages.get(0);
+        // dev hook: boot straight into any stage with -Dvaelmourn.startStage=N
+        String startProp = System.getProperty("vaelmourn.startStage");
+        if (startProp != null) {
+            try {
+                int requested = Integer.parseInt(startProp.trim());
+                currentStageIndex = Math.min(Math.max(0, requested), stages.size() - 1);
+                System.out.println("[DEV] vaelmourn.startStage=" + requested
+                        + " -> booting directly into index " + currentStageIndex);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        currentStage = stages.get(currentStageIndex);
         currentStage.build(assetManager, rootNode, bulletAppState);
+
+        // spawn this stage's enemies (safe hubs like the Sanctuary stay empty)
+        if (!currentStage.isSafe()) {
+            activeEnemies = currentStage.spawnEnemies(assetManager, rootNode, bulletAppState, loopCount);
+            System.out.println("Spawned " + activeEnemies.size() + " enemies in " + currentStage.getName());
+        }
 
         // warp the player to their spawn point
         Vector3f spawnPoint = currentStage.getPlayerSpawnPoint();
@@ -107,8 +124,8 @@ public class StageManager {
         currentStage = stages.get(currentStageIndex);
         currentStage.build(assetManager, rootNode, bulletAppState);
 
-        // spawn this stage's enemies (the Sanctuary hub doesn't get any)
-        if (currentStageIndex > 0) {
+        // spawn this stage's enemies (safe hubs like the Sanctuary stay empty)
+        if (!currentStage.isSafe()) {
             activeEnemies = currentStage.spawnEnemies(assetManager, rootNode, bulletAppState, loopCount);
             System.out.println("Spawned " + activeEnemies.size() + " enemies in " + currentStage.getName());
         }
@@ -135,18 +152,18 @@ public class StageManager {
             if (e.canRemove()) {
                 e.cleanup(bulletAppState);
                 if (playerStats != null) {
-                    playerStats.addSoulDust(10); // TODO: this reward should probably scale with difficulty
+                    // boss kills drop a real jackpot; normal kills scale gently per loop
+                    int reward = e.isBoss() ? 200 + loopCount * 50 : 10 + loopCount * 5;
+                    playerStats.addSoulDust(reward);
                 }
                 return true;
             }
             return false;
         });
 
-        // figure out whether the stage gets an exit: the Sanctuary hub always
-        // keeps one so the player can leave, and combat stages open theirs
-        // once everything's dead.
-        boolean needsPortal = currentStageIndex == 0
-                || (currentStageIndex > 0 && activeEnemies.isEmpty());
+        // Safe stages (any Sanctuary instance in the rotation) always keep an
+        // open exit portal; combat stages only open theirs once everything's dead.
+        boolean needsPortal = currentStage.isSafe() || activeEnemies.isEmpty();
         if (needsPortal && portalGeo == null) {
             spawnExitPortal(playerPos);
         }
