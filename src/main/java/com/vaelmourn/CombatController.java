@@ -31,6 +31,9 @@ public class CombatController {
 
     private float defaultFov = 45f;
     private float targetFov = 45f;
+    // velocity-based FOV swell supplied by the movement system each frame;
+    // adds on top of targetFov so ADS zoom and speed feedback compose
+    private float speedFovBoost = 0f;
 
     // how much camera kick each attack carries when it connects
     private static final float MELEE_LIGHT_HIT_SHAKE = 0.05f;
@@ -187,10 +190,15 @@ public class CombatController {
             parryTimer -= tpf;
         }
 
-        // Ease the FOV toward the ADS zoom value
+        // Ease the FOV toward the ADS zoom value (movement's speed swell rides on top)
         float currentFov = cam.getFov();
         float lerp = FastMath.clamp(tpf * 10f, 0f, 1f);
-        cam.setFov(FastMath.interpolateLinear(lerp, currentFov, targetFov));
+        cam.setFov(FastMath.interpolateLinear(lerp, currentFov, targetFov + speedFovBoost));
+    }
+
+    /** Velocity-based FOV swell driven by the movement system (0 when cruising). */
+    public void setSpeedFovBoost(float boost) {
+        this.speedFovBoost = boost;
     }
 
     // ---------------- the actual attacks ----------------

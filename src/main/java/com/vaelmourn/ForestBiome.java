@@ -31,6 +31,7 @@ import com.jme3.font.BitmapText;
 import com.jme3.material.Material;
 import com.jme3.math.ColorRGBA;
 import com.jme3.math.FastMath;
+import com.jme3.math.Quaternion;
 import com.jme3.math.Vector2f;
 import com.jme3.math.Vector3f;
 import com.jme3.renderer.Camera;
@@ -69,15 +70,49 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
     private boolean left, right, forward, backward;
     private final Vector3f walkDirection = new Vector3f();
+    // the eased velocity actually fed to the capsule each frame; walkDirection
+    // is the raw target and movementVelocity lags it by a tiny, tuned amount
+    private final Vector3f movementVelocity = new Vector3f();
+    // reusable quaternion for steering the heading arc each frame
+    private final Quaternion turnQuat = new Quaternion();
+
+    // --- Movement feel (fast, airborne, momentum-driven — centralized knobs) ---
+    // movementVelocity eases toward the raw input vector every frame via
+    // (1 - exp(-rate * tpf)). Ground accel is near-instant so the hero hits full
+    // speed the moment keys go down; brake sits just behind it so stops stay
+    // crisp without killing the flow of direction changes.
+    private final float MOVE_ACCELERATION_RATE = 100f; // ground: full speed almost immediately
+    private final float MOVE_BRAKE_RATE = 92f;         // ground: quick tidy stop
+    private final float AIR_ACCELERATION_RATE = 85f;   // air: ~85% of ground control for air-strafes
+    private final float AIR_BRAKE_RATE = 10f;          // air: keep horizontal momentum when input stops
+    // Steering: the heading turns toward input through a smooth arc instead of
+    // snapping. The rate scales with the angle — wide reversals sweep (slightly
+    // longer), small corrections finish almost instantly — and never drops below
+    // the floor, so there's no laggy tail near the end of a turn.
+    private final float GROUND_TURN_RATE_MIN = 7f;  // rad/s — narrow corrections snap shut
+    private final float GROUND_TURN_RATE_MAX = 13f; // rad/s — wide reversals still sweep
+    private final float AIR_TURN_RATE_MIN = 8f;     // air stays a bit more eager than the ground
+    private final float AIR_TURN_RATE_MAX = 16f;
+    // below this the current heading isn't meaningful yet (start from rest → face input directly)
+    private final float MOMENTUM_EPS = 0.01f;
+    // the orbit camera drifts toward travel so speed reads on screen — a lean,
+    // not a yank (~0.9 units at full run, zero when stationary)
+    private final float CAMERA_LEAN_FACTOR = 0.028f;
+    // movement anim selects the model's run clip (when present) and plays it hot
+    // in proportion to actual speed — never forced to max, always velocity-driven
+    private final float MOVE_ANIM_MIN_SPEED = 1.0f;
+    private final float MOVE_ANIM_MAX_SPEED = 1.6f;
 
     // --- Dodge state ---
     private boolean dodging = false;
     private float dodgeTimer = 0f;
     private float dodgeCooldown = 0f;
-    private final float DODGE_DURATION_FALLBACK = 0.4f;
+    // dodge is a short burst of momentum, not a slow defensive roll
+    private final float DODGE_DURATION = 0.28f;
+    private final float DODGE_DURATION_FALLBACK = 0.28f;
     private float rollClipLength = DODGE_DURATION_FALLBACK;
-    private final float DODGE_COOLDOWN_TIME = 0.8f;
-    private final float DODGE_SPEED = 14f;
+    private final float DODGE_COOLDOWN_TIME = 0.6f;
+    private final float DODGE_SPEED = 45f;
     private final Vector3f dodgeDirection = new Vector3f();
     private final Vector3f lastMoveDir = new Vector3f();
 
@@ -88,13 +123,40 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     private String crouchWalkClipName = null;
 
     // --- Jump / fall state ---
+    private boolean jumpHeld = false;
+    private float jumpBufferTimer = 0f;
+    private float coyoteTimer = 0f;
+    private String runClipName = null;
     private String jumpClipName = null;
     private String fallClipName = null;
+    private final float JUMP_FORCE = 20f;
+    // jump forgiveness: coyote lets you jump just after leaving a ledge, and
+    // buffered presses fire the instant you land — no more swallowed inputs
+    private final float COYOTE_TIME = 0.12f;
+    private final float JUMP_BUFFER_TIME = 0.10f;
 
     // --- Gravity shaping ---
-    private final float BASE_GRAVITY = 25f;
-    private final float FALL_GRAVITY_MULTIPLIER = 2.5f;
-    private final float RISE_GRAVITY_MULTIPLIER = 1.1f;
+    private final float BASE_GRAVITY = 24f;
+    private final float RISE_GRAVITY_MULTIPLIER = 0.95f; // smooth rise to a real apex
+    // letting go of jump mid-rise spikes gravity so taps give short hops
+    private final float JUMP_CUT_GRAVITY_MULTIPLIER = 3.2f;
+    private final float FALL_GRAVITY_MULTIPLIER = 2.0f;  // decisive fall, quick landing
+
+    // --- FOV speed feedback ---
+    private final float BASE_FOV = 45f;
+    private final float FOV_SPEED_MAX_INCREASE = 8f; // +8° at full run
+    private final float FOV_RESPONSE = 6f;           // how eagerly FOV tracks velocity
+    private float currentFov = BASE_FOV;
+
+    // --- Landing feedback (subtle; control is never locked) ---
+    private boolean wasAirborne = true;
+    private float landDip = 0f;
+    private float airborneFallPeak = 0f;
+    private final float LANDING_FEEDBACK_THRESHOLD = 14f; // only real falls dip the cam
+    private final float LANDING_FEEDBACK_SCALE = 0.03f;
+    private final float LANDING_FEEDBACK_MAX_DIP = 0.35f;
+    private final float LANDING_FEEDBACK_RECOVERY = 10f;   // springs back in ~0.1s
+    private final float LANDING_FEEDBACK_SHAKE = 0.3f;
 
     // --- Orbit camera ---
     private float camYaw = 0f;
@@ -258,7 +320,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         rootNode.attachChild(playerNode);
 
         playerControl = new BetterCharacterControl(0.5f, 1.8f, 1f);
-        playerControl.setJumpForce(new Vector3f(0, 15f, 0));
+        playerControl.setJumpForce(new Vector3f(0, JUMP_FORCE, 0));
         playerControl.setGravity(new Vector3f(0, -BASE_GRAVITY, 0));
 
         playerNode.addControl(playerControl);
@@ -288,6 +350,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
             crouchIdleClipName = findClipContaining("crouch", "duck", "sneak", "crawl");
             crouchWalkClipName = findClipContaining("crouchwalk", "crouch_walk", "sneakwalk", "duckwalk");
+            runClipName = findClipContaining("run");
             jumpClipName = findClipContaining("jump");
             fallClipName = findClipContaining("fall", "inair", "airborne", "midair");
 
@@ -911,12 +974,15 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                 backward = isPressed;
                 break;
             case "Jump":
-                if (isPressed) playerControl.jump();
+                // jump is queued so it works with coyote time and buffers the
+                // press when it arrives mid-air before a landing
+                if (isPressed) queueJump();
+                else jumpHeld = false;
                 break;
             case "Dodge":
-                if (isPressed && !dodging && dodgeCooldown <= 0f && lastMoveDir.lengthSquared() > 0.01f) {
-                    startDodge();
-                }
+                // lives on lastMoveDir so direction changes mid-dodge feel
+                // instant; falls back to the camera when standing still
+                if (isPressed && !dodging && dodgeCooldown <= 0f) startDodge();
                 break;
             case "Crouch":
                 crouching = isPressed;
@@ -997,10 +1063,33 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
     private void startDodge() {
         dodging = true;
-        dodgeTimer = rollClipLength;
+        dodgeTimer = DODGE_DURATION;
         dodgeCooldown = DODGE_COOLDOWN_TIME;
+        // dodge in the last held move direction so it reads as a momentum burst;
+        // with no direction held it still fires, straight ahead of the camera
         dodgeDirection.set(lastMoveDir);
+        if (dodgeDirection.lengthSquared() < 0.01f) {
+            dodgeDirection.set(cam.getDirection()).setY(0);
+            if (dodgeDirection.lengthSquared() < 0.01f) dodgeDirection.set(0, 0, 1);
+        }
+        dodgeDirection.normalizeLocal();
         playAnim("Roll");
+    }
+
+    /**
+     * Jump request that plays by the platforming rules: if the player is (or
+     * very recently was) on the ground the jump fires immediately; otherwise
+     * the press is buffered for a moment so it executes on landing. Releasing
+     * jump early cuts the arc via the gravity spike in update.
+     */
+    private void queueJump() {
+        jumpHeld = true;
+        if (playerControl.isOnGround() || coyoteTimer > 0f) {
+            coyoteTimer = 0f;
+            playerControl.jump();
+        } else {
+            jumpBufferTimer = JUMP_BUFFER_TIME;
+        }
     }
 
     @Override
@@ -1061,10 +1150,34 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         }
 
         float verticalVelocity = playerControl.getVelocity().y;
-        float gravityScale = verticalVelocity < 0f ? FALL_GRAVITY_MULTIPLIER : RISE_GRAVITY_MULTIPLIER;
+        boolean grounded = playerControl.isOnGround();
+
+        // Jump forgiveness: while grounded the coyote window stays full; the
+        // moment a buffered press (made mid-air) touches down it fires the jump.
+        if (grounded) {
+            coyoteTimer = COYOTE_TIME;
+            if (jumpBufferTimer > 0f) {
+                jumpBufferTimer = 0f;
+                playerControl.jump();
+            }
+        } else {
+            if (coyoteTimer > 0f) coyoteTimer -= tpf;
+            if (jumpBufferTimer > 0f) jumpBufferTimer -= tpf;
+        }
+
+        // Variable jump: hold Space for the full arc; release mid-rise and the
+        // ascent is cut with a sharp gravity spike so taps give quick short hops.
+        float gravityScale;
+        if (verticalVelocity < 0f) {
+            gravityScale = FALL_GRAVITY_MULTIPLIER;
+        } else if (!jumpHeld) {
+            gravityScale = JUMP_CUT_GRAVITY_MULTIPLIER;
+        } else {
+            gravityScale = RISE_GRAVITY_MULTIPLIER;
+        }
         playerControl.setGravity(new Vector3f(0, -BASE_GRAVITY * gravityScale, 0));
 
-        boolean airborne = !playerControl.isOnGround();
+        boolean airborne = !grounded;
 
         Camera camera = cam;
         Vector3f camDir = camera.getDirection().clone().setY(0).normalizeLocal();
@@ -1082,23 +1195,84 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             lastMoveDir.set(walkDirection).normalizeLocal();
         }
 
+        // speed potions and leggings/boots feed straight into the target speed;
+        // the eased velocity below is what actually drives the capsule.
+        float baseSpeed = playerStats != null ? playerStats.getMovementSpeed() : 29f;
+        float targetSpeed = crouching ? baseSpeed * CROUCH_SPEED_MULTIPLIER : baseSpeed;
+
+        // Speed is kept separate from heading on purpose. Lerping the whole
+        // velocity vector toward the new target dips the speed to ~70% mid-turn
+        // and leaves a laggy settle — instead, we keep the carried magnitude
+        // (real momentum) and *steer* the direction through a smooth arc at a
+        // rate that scales with the angle. Small corrections snap shut, wide
+        // reversals sweep, and nothing ever snaps 90°.
+        Vector3f curDir = new Vector3f(movementVelocity);
+        float curSpeed = curDir.length();
+        curDir.normalizeLocal();
+
+        if (isMoving) {
+            // walkDirection is the raw summed input (square-root-2 long on
+            // diagonals); normalize it here for a clean desired heading
+            Vector3f inputDir = walkDirection.normalizeLocal();
+
+            if (curSpeed > MOMENTUM_EPS) {
+                // smallest signed angle from current heading to input heading.
+                // atan2(crossY, dot) comes out with the opposite winding to
+                // jME's right-handed +Y rotation, so we negate it: positive here
+                // means "turn the standard +Y right-handed way toward the input."
+                // (Without this, steering rotates away from the input and the
+                // heading U-turns through 180° instead of curving to the combo.)
+                float dot = FastMath.clamp(curDir.dot(inputDir), -1f, 1f);
+                float crossY = curDir.x * inputDir.z - curDir.z * inputDir.x;
+                float signedAngle = -FastMath.atan2(crossY, dot);
+                float angle = FastMath.abs(signedAngle);
+
+                float turnRate = airborne
+                        ? AIR_TURN_RATE_MIN + (AIR_TURN_RATE_MAX - AIR_TURN_RATE_MIN) * (angle / FastMath.PI)
+                        : GROUND_TURN_RATE_MIN + (GROUND_TURN_RATE_MAX - GROUND_TURN_RATE_MIN) * (angle / FastMath.PI);
+                float turnStep = Math.min(angle, turnRate * tpf);
+
+                if (turnStep >= angle) {
+                    curDir.set(inputDir); // fully aligned
+                } else {
+                    turnQuat.fromAngleAxis(turnStep * (float) Math.signum(signedAngle), Vector3f.UNIT_Y);
+                    turnQuat.multLocal(curDir);
+                }
+            } else {
+                curDir.set(inputDir);
+            }
+
+            // strong forward acceleration from rest, quick brake when the target
+            // speed drops (crouch), same split the air uses
+            float speedRate = targetSpeed > curSpeed
+                    ? (airborne ? AIR_ACCELERATION_RATE : MOVE_ACCELERATION_RATE)
+                    : (airborne ? AIR_BRAKE_RATE : MOVE_BRAKE_RATE);
+            float speedBlend = 1f - FastMath.exp(-speedRate * tpf);
+            curSpeed += (targetSpeed - curSpeed) * speedBlend;
+
+            movementVelocity.set(curDir).multLocal(curSpeed);
+        } else {
+            // no input: quick tidy stop on the ground, gentle glide in the air
+            float brakeRate = airborne ? AIR_BRAKE_RATE : MOVE_BRAKE_RATE;
+            movementVelocity.multLocal((float) FastMath.exp(-brakeRate * tpf));
+        }
+
         if (dodging) {
             dodgeTimer -= tpf;
             playerControl.setWalkDirection(dodgeDirection.mult(DODGE_SPEED));
+            // stretch/blend the roll clip to the burst duration so the pose
+            // matches the faster dodge instead of playing at its raw length
+            if (rollClipLength > 0f && animComposer != null) {
+                animComposer.setGlobalSpeed(Math.min(3f, rollClipLength / DODGE_DURATION));
+            }
 
             if (dodgeTimer <= 0f) {
                 dodging = false;
             }
         } else {
-            // speed potions and leggings/boots now feed straight into walking
-            float baseSpeed = playerStats != null ? playerStats.getMovementSpeed() : 12f;
-            float speed = crouching ? baseSpeed * CROUCH_SPEED_MULTIPLIER : baseSpeed;
-
-            if (walkDirection.lengthSquared() > 0) {
-                walkDirection.normalizeLocal().multLocal(speed);
-            }
-
-            playerControl.setWalkDirection(walkDirection);
+            // the roll rides at full speed unclamped; walking carries the eased
+            // velocity so strafes and backpedals keep a hint of momentum.
+            playerControl.setWalkDirection(movementVelocity);
 
             if (isMoving) {
                 playerControl.setViewDirection(walkDirection);
@@ -1110,10 +1284,23 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         } else if (airborne && (jumpClipName != null || fallClipName != null)) {
             String airClip = verticalVelocity > 0f && jumpClipName != null ? jumpClipName : fallClipName;
             playAnim(airClip != null ? airClip : jumpClipName);
+            // air clips always play at normal pace
+            if (animComposer != null) animComposer.setGlobalSpeed(1f);
         } else if (crouching && crouchIdleClipName != null) {
             playAnim(isMoving && crouchWalkClipName != null ? crouchWalkClipName : crouchIdleClipName);
+            if (animComposer != null) animComposer.setGlobalSpeed(1f);
         } else {
-            playAnim(isMoving ? "Walk" : "Idle");
+            // use the model's run clip so fast movement looks like running, then
+            // play it hot in proportion to actual velocity — the sprint reads as
+            // a sprint instead of a moonwalk
+            String moveClip = runClipName != null ? runClipName : "Walk";
+            playAnim(isMoving ? moveClip : "Idle");
+            float speedRatio = baseSpeed <= 0f ? 1f
+                    : FastMath.clamp(movementVelocity.length() / baseSpeed, 0f, 1f);
+            float animScale = isMoving
+                    ? FastMath.interpolateLinear(speedRatio, MOVE_ANIM_MIN_SPEED, MOVE_ANIM_MAX_SPEED)
+                    : 1f;
+            if (animComposer != null) animComposer.setGlobalSpeed(animScale);
         }
 
         Vector3f playerPos = playerNode.getWorldTranslation().clone();
@@ -1127,7 +1314,36 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         // the combat shake rides on top of the orbit position; getShakeOffset
         // returns zero when nothing's kicking, so the camera stays untouched
         Vector3f shakeOffset = effects != null ? effects.getShakeOffset(tpf) : Vector3f.ZERO;
-        cam.setLocation(playerPos.add(offset).add(0, 1.5f, 0).add(shakeOffset));
+
+        // drift the orbit camera toward travel so movement reads on screen;
+        // scales with eased velocity and vanishes when stationary (never yanks)
+        Vector3f leanOffset = movementVelocity.mult(CAMERA_LEAN_FACTOR);
+
+        // Hard landing: a real fall dips the camera a moment and kicks a tiny
+        // shake; recovery is fast and movement is never locked — the player is
+        // already sprinting again the frame they touch down. Fall speed is the
+        // peak reached *while airborne* because the capsule's own velocity is
+        // already ~0 by the frame it registers as grounded.
+        if (airborne) {
+            if (verticalVelocity < 0f) airborneFallPeak = Math.min(airborneFallPeak, verticalVelocity);
+        } else {
+            if (wasAirborne && airborneFallPeak < -LANDING_FEEDBACK_THRESHOLD) {
+                landDip = Math.min(LANDING_FEEDBACK_MAX_DIP, -airborneFallPeak * LANDING_FEEDBACK_SCALE);
+                if (effects != null) effects.startShake(LANDING_FEEDBACK_SHAKE, 0.12f);
+            }
+            airborneFallPeak = 0f;
+        }
+        wasAirborne = airborne;
+        landDip = Math.max(0f, landDip - tpf * LANDING_FEEDBACK_RECOVERY);
+
+        // FOV swells subtly with horizontal speed and eases back when cruising,
+        // so velocity is felt without a constant zoom wobble
+        float fovTarget = BASE_FOV + FOV_SPEED_MAX_INCREASE
+                * FastMath.clamp(movementVelocity.length() / (baseSpeed <= 0f ? 29f : baseSpeed), 0f, 1f);
+        currentFov += (fovTarget - currentFov) * FastMath.clamp(tpf * FOV_RESPONSE, 0f, 1f);
+        if (combat != null) combat.setSpeedFovBoost(currentFov - BASE_FOV);
+
+        cam.setLocation(playerPos.add(offset).add(0, 1.5f - landDip, 0).add(shakeOffset).addLocal(leanOffset));
         cam.lookAt(playerPos.add(0, 1.5f, 0), Vector3f.UNIT_Y);
     }
 

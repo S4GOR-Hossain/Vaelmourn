@@ -42,7 +42,7 @@ public class PlayerStats {
 
     // ---- base stats (the "unmodified" numbers gameplay starts from) ----
     private float baseArmor = 10f;             // suite of starting gear baseline
-    private float baseMoveSpeed = 12f;         // matches the world movement speed
+    private float baseMoveSpeed = 29f;         // fast run pace; potions/gear/slow layer on top
     private float baseWeaponDamage = 8f;       // replaced by the equipped weapon
     private float baseWeaponAttackSpeed = 1.2f;
 
