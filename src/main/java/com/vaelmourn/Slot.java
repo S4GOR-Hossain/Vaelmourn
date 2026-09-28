@@ -1,8 +1,6 @@
 package com.vaelmourn;
 
-/**
- * Container that holds a stack of items in a single slot.
- */
+/** Holds a stack of an item in a single slot. */
 public class Slot {
 
     public String itemId;

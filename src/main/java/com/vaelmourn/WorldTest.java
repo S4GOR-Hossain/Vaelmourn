@@ -23,11 +23,9 @@ public class WorldTest extends SimpleApplication {
     @Override
     public void simpleInitApp() {
 
-        // 1. Turn on the physics engine
         bulletAppState = new BulletAppState();
         stateManager.attach(bulletAppState);
 
-        // 2. Build the visible floor
         Box floorBox = new Box(50f, 0.5f, 50f); // half-extents: 100m x 1m x 100m total
         Geometry floor = new Geometry("Floor", floorBox);
 
@@ -37,14 +35,12 @@ public class WorldTest extends SimpleApplication {
 
         floor.setLocalTranslation(0, -0.5f, 0);
 
-        // 3. Give the floor a physics body so things can stand on it
         RigidBodyControl floorPhysics = new RigidBodyControl(0); // mass 0 = static, never moves
         floor.addControl(floorPhysics);
 
         rootNode.attachChild(floor);
         bulletAppState.getPhysicsSpace().add(floorPhysics);
 
-        // 4. Add basic lighting so you can actually see it
         DirectionalLight sun = new DirectionalLight();
         sun.setDirection(new Vector3f(-0.5f, -1f, -0.5f).normalizeLocal());
         sun.setColor(ColorRGBA.White);
@@ -54,7 +50,6 @@ public class WorldTest extends SimpleApplication {
         ambient.setColor(ColorRGBA.White.mult(0.4f));
         rootNode.addLight(ambient);
 
-        // 5. Pull the debug camera back so you can see the whole floor
         cam.setLocation(new Vector3f(0, 15, 30));
         cam.lookAt(Vector3f.ZERO, Vector3f.UNIT_Y);
     }

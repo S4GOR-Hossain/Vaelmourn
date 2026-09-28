@@ -21,22 +21,20 @@ import java.util.Map;
 import java.util.Random;
 
 /**
- * Centra hoofpiece for combat feel: floating damage numbers, a small camera
- * shake, hit/death/hurt sounds and the brief player hurt-flash. It's all
- * additive stuff layered over the normal game — nothing here permanently
- * changes any material, node or the camera's real position.
+ * Combat-feel layer: floating damage numbers, camera shake, hit/death/hurt sounds
+ * and the player hurt-flash. Nothing here permanently changes the camera position.
  */
 public class CombatEffects {
 
-    // ---- tuning knobs (gameplay feel lives here, not scattered around) ----
+    // tuning knobs (gameplay feel lives here, not scattered around)
     private static final int MAX_DAMAGE_NUMBERS = 40;
     private static final float DAMAGE_NUMBER_DURATION = 0.95f;
     private static final float DAMAGE_NUMBER_RISE = 1.6f;   // meters it floats up in its life
     private static final float DAMAGE_NUMBER_SIZE = 1.6f;   // world-space text size
 
-    private static final float HIT_SHAKE_INTENSITY = 0.09f;   // felt on a regular hit
+    private static final float HIT_SHAKE_INTENSITY = 0.09f;
     private static final float HIT_SHAKE_DURATION = 0.14f;
-    private static final float KILL_SHAKE_INTENSITY = 0.09f;  // kill bumps it a touch
+    private static final float KILL_SHAKE_INTENSITY = 0.09f;
     private static final float KILL_SHAKE_DURATION = 0.20f;
 
     private static final float PLAYER_HURT_FLASH_DURATION = 0.15f;
@@ -55,19 +53,15 @@ public class CombatEffects {
     private final Node worldRoot;
     private BitmapFont font;
 
-    // ---- camera shake ----
     private final Random random = new Random();
     private float shakeTimer = 0f;
     private float shakeSpan = 0f;
     private float shakeMag = 0f;
 
-    // ---- damage numbers ----
     private final List<DmgText> numbers = new ArrayList<>();
 
-    // ---- sounds ----
     private final Map<String, AudioNode> audioCache = new HashMap<>();
 
-    // ---- player hurt flash ----
     private final Spatial playerModel;
     private final List<Geometry> playerGeos = new ArrayList<>();
     private final Map<Geometry, Material> playerOriginalMats = new HashMap<>();
@@ -75,7 +69,7 @@ public class CombatEffects {
     private float playerFlashTimer = 0f;
     private boolean playerFlashOn = false;
 
-    // ---- reuse scratch objects so the per-frame loops never allocate ----
+    // reuse scratch objects so the per-frame loops never allocate
     private final ColorRGBA textColorScratch = new ColorRGBA(1f, 0.95f, 0.45f, 1f);
     private final Vector3f shakeOut = new Vector3f();
 
@@ -118,8 +112,6 @@ public class CombatEffects {
         }
     }
 
-    // ================= damage on an enemy =================
-
     public void onEnemyHit(EnemyController enemy, float damage, boolean killed, float shakeAmp) {
         if (damage > 0f && font != null && enemy != null) {
             spawnDamageNumber(enemy.getPosition().add(0f, 1.85f, 0f), Math.round(damage));
@@ -150,8 +142,6 @@ public class CombatEffects {
 
         numbers.add(new DmgText(bt, worldPos.clone(), jitterX));
     }
-
-    // ================= player took a hit =================
 
     public void onPlayerDamaged() {
         flashPlayer(PLAYER_HURT_FLASH_DURATION);
@@ -192,17 +182,12 @@ public class CombatEffects {
         }
     }
 
-    // ================= attack started by the player =================
-
     public void onPlayerAttack(Vector3f atPos, boolean heavy) {
         playSound("Sounds/swing.wav", atPos, heavy ? SWING_SOUND_VOLUME_HEAVY : SWING_SOUND_VOLUME);
         if (heavy) startShake(HEAVY_SWING_SHAKE_INTENSITY, HEAVY_SWING_SHAKE_DURATION);
     }
 
-    // ================= per-frame upkeep =================
-
     public void update(float tpf) {
-        // damage numbers float up and fade
         for (int i = numbers.size() - 1; i >= 0; i--) {
             DmgText nt = numbers.get(i);
             nt.age += tpf;
@@ -220,7 +205,6 @@ public class CombatEffects {
             }
         }
 
-        // player flash restores itself once the timer runs out
         if (playerFlashTimer > 0f) {
             playerFlashTimer -= tpf;
             if (playerFlashTimer <= 0f) {
@@ -229,11 +213,7 @@ public class CombatEffects {
         }
     }
 
-    /**
-     * Tactically shaking the camera: returns a small positional offset to add to
-     * the camera's location each frame. Falls back to zero so the normal camera
-     * follow is never overridden.
-     */
+    /** Positional offset to add to the camera each frame; zero when idle, so follow is never overridden. */
     public Vector3f getShakeOffset(float tpf) {
         if (shakeTimer <= 0f) {
             shakeTimer = 0f;
@@ -257,8 +237,6 @@ public class CombatEffects {
         shakeSpan = Math.max(shakeSpan, seconds);
         shakeTimer = shakeSpan;
     }
-
-    // ================= sound helpers =================
 
     private void playSound(String name, Vector3f position, float volume) {
         try {

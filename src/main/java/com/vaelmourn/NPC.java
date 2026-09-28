@@ -18,8 +18,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * An NPC (Non-Player Character) shopkeeper that sells items for soul dust.
- * When interacted with (via F key), displays a shop GUI.
+ * An NPC shopkeeper that sells items for soul dust. Interacting (F key) opens
+ * the shop GUI.
  */
 public class NPC implements Interactable {
 
@@ -39,9 +39,6 @@ public class NPC implements Interactable {
         this.node.setLocalTranslation(position);
     }
 
-    /**
-     * Build the NPC geometry and physics in the world.
-     */
     public void build(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState) {
         // Bare-bones cylinder standing in for the NPC body
         Cylinder npcBody = new Cylinder(16, 32, 0.4f, 1.8f, true);
@@ -49,18 +46,17 @@ public class NPC implements Interactable {
 
         Material npcMat = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
         npcMat.setBoolean("UseMaterialColors", true);
-        npcMat.setColor("Diffuse", new ColorRGBA(0.3f, 0.7f, 0.4f, 1f)); // greenish outfit
+        npcMat.setColor("Diffuse", new ColorRGBA(0.3f, 0.7f, 0.4f, 1f));
         npcMat.setColor("Specular", ColorRGBA.White);
         npcMat.setFloat("Shininess", 16f);
         npcGeo.setMaterial(npcMat);
-        // jME3's Cylinder sizes its height along Z, so it spawns lying flat.
-        // Rotate 90 degrees about X to stand the body upright.
+        // jME3's Cylinder sizes its height along Z, so it spawns lying flat;
+        // rotate 90 degrees about X to stand the body upright.
         npcGeo.rotate(FastMath.HALF_PI, 0f, 0f);
 
         npcGeo.setLocalTranslation(0, 0.9f, 0);
         node.attachChild(npcGeo);
 
-        // A head — just a smaller cylinder stacked on top
         Cylinder head = new Cylinder(16, 32, 0.3f, 0.5f, true);
         Geometry headGeo = new Geometry("HeadGeometry", head);
         headGeo.setMaterial(npcMat);
@@ -70,16 +66,12 @@ public class NPC implements Interactable {
 
         parentNode.attachChild(node);
 
-        // Static body so the NPC can't be shoved around
         CapsuleCollisionShape shape = new CapsuleCollisionShape(0.4f, 1.8f);
         physics = new RigidBodyControl(shape, 0);
         physics.setPhysicsLocation(position.add(0, 0.9f, 0));
         bulletAppState.getPhysicsSpace().add(physics);
     }
 
-    /**
-     * Add an item to this NPC's shop.
-     */
     public void addShopItem(String itemId, int priceInSoulDust) {
         shopItems.add(itemId);
         shopPrices.add(priceInSoulDust);
@@ -99,15 +91,11 @@ public class NPC implements Interactable {
     public void interact() {
         System.out.println("Interacted with NPC: " + name);
 
-        // Hand off to the shop UI if one's been attached
         if (shopUI != null) {
             shopUI.show(this);
         }
     }
 
-    /**
-     * Set the UI handler for this NPC's shop.
-     */
     public void setShopUI(ShopUI ui) {
         this.shopUI = ui;
     }
@@ -138,9 +126,6 @@ public class NPC implements Interactable {
         return shopPrices;
     }
 
-    /**
-     * Interface for the shop UI callback.
-     */
     public interface ShopUI {
         void show(NPC npc);
         void purchaseItem(String itemId, int count);

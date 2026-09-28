@@ -18,24 +18,20 @@ import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 
 /**
- * Color-tinted particle aura that clings to the player model while a potion
- * buff is running. One emitter per buff, in the same fixed order as
- * {@link PlayerStats.Buff}, so a stacked potion literally stacks effects.
- * Emitters are turned on/off by the buff timers in {@link #update(PlayerStats)};
- * disabling an emitter lets its few remaining sparks burn out instead of
- * vanishing mid-air.
+ * Color-tinted particle aura on the player model while a potion buff runs; one
+ * emitter per buff in {@link PlayerStats.Buff} order. Disabling an emitter lets
+ * its remaining sparks burn out rather than vanish mid-air.
  */
 public class PlayerBuffEffects {
 
     // one particle hue per buff, mirrored by the HUD timer pills
     private static final ColorRGBA[] BUFF_COLORS = {
-            new ColorRGBA(0.35f, 0.85f, 1.00f, 1f),  // Speed - icy cyan
-            new ColorRGBA(1.00f, 0.50f, 0.15f, 1f),  // Strength - molten orange
-            new ColorRGBA(1.00f, 0.85f, 0.20f, 1f),  // Critical - rich gold
-            new ColorRGBA(0.35f, 0.90f, 0.40f, 1f),  // Regen - verdant green
+            new ColorRGBA(0.35f, 0.85f, 1.00f, 1f),
+            new ColorRGBA(1.00f, 0.50f, 0.15f, 1f),
+            new ColorRGBA(1.00f, 0.85f, 0.20f, 1f),
+            new ColorRGBA(0.35f, 0.90f, 0.40f, 1f),
     };
 
-    // aura look & feel
     private static final int PARTICLES_PER_SEC = 26;
     private static final int MAX_PARTICLES = 64;
     private static final float EMITTER_HEIGHT = 1.2f; // mid-torso of the player model
@@ -77,10 +73,7 @@ public class PlayerBuffEffects {
         }
     }
 
-    /**
-     * Pokes each emitter according to its buff timer: active buff = emitting,
-     * expired buff = idling (sparks fade on their own within a second).
-     */
+    /** Pokes each emitter from its buff timer: active = emitting, expired = idling. */
     public void update(PlayerStats playerStats) {
         PlayerStats.Buff[] buffs = PlayerStats.Buff.values();
         for (int i = 0; i < buffs.length; i++) {

@@ -13,6 +13,8 @@ import com.jme3.bullet.collision.shapes.BoxCollisionShape;
 import com.jme3.bullet.collision.shapes.CapsuleCollisionShape;
 import com.jme3.bullet.control.BetterCharacterControl;
 import com.jme3.bullet.control.RigidBodyControl;
+import com.jme3.collision.CollisionResult;
+import com.jme3.collision.CollisionResults;
 import com.jme3.environment.EnvironmentCamera;
 import com.jme3.environment.LightProbeFactory;
 import com.jme3.environment.generation.JobProgressAdapter;
@@ -32,6 +34,7 @@ import com.jme3.material.Material;
 import com.jme3.math.ColorRGBA;
 import com.jme3.math.FastMath;
 import com.jme3.math.Quaternion;
+import com.jme3.math.Ray;
 import com.jme3.math.Vector2f;
 import com.jme3.math.Vector3f;
 import com.jme3.renderer.Camera;
@@ -70,44 +73,33 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
     private boolean left, right, forward, backward;
     private final Vector3f walkDirection = new Vector3f();
-    // the eased velocity actually fed to the capsule each frame; walkDirection
-    // is the raw target and movementVelocity lags it by a tiny, tuned amount
+
     private final Vector3f movementVelocity = new Vector3f();
-    // reusable quaternion for steering the heading arc each frame
+
     private final Quaternion turnQuat = new Quaternion();
 
-    // --- Movement feel (fast, airborne, momentum-driven — centralized knobs) ---
-    // movementVelocity eases toward the raw input vector every frame via
-    // (1 - exp(-rate * tpf)). Ground accel is near-instant so the hero hits full
-    // speed the moment keys go down; brake sits just behind it so stops stay
-    // crisp without killing the flow of direction changes.
-    private final float MOVE_ACCELERATION_RATE = 100f; // ground: full speed almost immediately
-    private final float MOVE_BRAKE_RATE = 92f;         // ground: quick tidy stop
-    private final float AIR_ACCELERATION_RATE = 85f;   // air: ~85% of ground control for air-strafes
-    private final float AIR_BRAKE_RATE = 10f;          // air: keep horizontal momentum when input stops
-    // Steering: the heading turns toward input through a smooth arc instead of
-    // snapping. The rate scales with the angle — wide reversals sweep (slightly
-    // longer), small corrections finish almost instantly — and never drops below
-    // the floor, so there's no laggy tail near the end of a turn.
+
+    private final float MOVE_ACCELERATION_RATE = 100f;
+    private final float MOVE_BRAKE_RATE = 92f;
+    private final float AIR_ACCELERATION_RATE = 85f;
+    private final float AIR_BRAKE_RATE = 10f;
+   
     private final float GROUND_TURN_RATE_MIN = 7f;  // rad/s — narrow corrections snap shut
     private final float GROUND_TURN_RATE_MAX = 13f; // rad/s — wide reversals still sweep
-    private final float AIR_TURN_RATE_MIN = 8f;     // air stays a bit more eager than the ground
+    private final float AIR_TURN_RATE_MIN = 8f;
     private final float AIR_TURN_RATE_MAX = 16f;
     // below this the current heading isn't meaningful yet (start from rest → face input directly)
     private final float MOMENTUM_EPS = 0.01f;
-    // the orbit camera drifts toward travel so speed reads on screen — a lean,
-    // not a yank (~0.9 units at full run, zero when stationary)
+    // camera leans toward travel (~0.9 units at full run, zero when stationary)
     private final float CAMERA_LEAN_FACTOR = 0.028f;
-    // movement anim selects the model's run clip (when present) and plays it hot
-    // in proportion to actual speed — never forced to max, always velocity-driven
+    // run clip plays hot in proportion to actual speed — never forced to max
     private final float MOVE_ANIM_MIN_SPEED = 1.0f;
     private final float MOVE_ANIM_MAX_SPEED = 1.6f;
 
-    // --- Dodge state ---
     private boolean dodging = false;
     private float dodgeTimer = 0f;
     private float dodgeCooldown = 0f;
-    // dodge is a short burst of momentum, not a slow defensive roll
+    // dodge is a short burst of momentum, not a defensive roll
     private final float DODGE_DURATION = 0.28f;
     private final float DODGE_DURATION_FALLBACK = 0.28f;
     private float rollClipLength = DODGE_DURATION_FALLBACK;
@@ -116,39 +108,34 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     private final Vector3f dodgeDirection = new Vector3f();
     private final Vector3f lastMoveDir = new Vector3f();
 
-    // --- Crouch state ---
     private boolean crouching = false;
     private final float CROUCH_SPEED_MULTIPLIER = 0.5f;
     private String crouchIdleClipName = null;
     private String crouchWalkClipName = null;
 
-    // --- Jump / fall state ---
     private boolean jumpHeld = false;
     private float jumpBufferTimer = 0f;
     private float coyoteTimer = 0f;
     private String runClipName = null;
     private String jumpClipName = null;
     private String fallClipName = null;
-    private final float JUMP_FORCE = 20f;
+    private final float JUMP_FORCE = 12f;
     // jump forgiveness: coyote lets you jump just after leaving a ledge, and
     // buffered presses fire the instant you land — no more swallowed inputs
     private final float COYOTE_TIME = 0.12f;
     private final float JUMP_BUFFER_TIME = 0.10f;
 
-    // --- Gravity shaping ---
     private final float BASE_GRAVITY = 24f;
     private final float RISE_GRAVITY_MULTIPLIER = 0.95f; // smooth rise to a real apex
     // letting go of jump mid-rise spikes gravity so taps give short hops
     private final float JUMP_CUT_GRAVITY_MULTIPLIER = 3.2f;
     private final float FALL_GRAVITY_MULTIPLIER = 2.0f;  // decisive fall, quick landing
 
-    // --- FOV speed feedback ---
     private final float BASE_FOV = 45f;
     private final float FOV_SPEED_MAX_INCREASE = 8f; // +8° at full run
     private final float FOV_RESPONSE = 6f;           // how eagerly FOV tracks velocity
     private float currentFov = BASE_FOV;
 
-    // --- Landing feedback (subtle; control is never locked) ---
     private boolean wasAirborne = true;
     private float landDip = 0f;
     private float airborneFallPeak = 0f;
@@ -158,28 +145,31 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     private final float LANDING_FEEDBACK_RECOVERY = 10f;   // springs back in ~0.1s
     private final float LANDING_FEEDBACK_SHAKE = 0.3f;
 
-    // --- Orbit camera ---
     private float camYaw = 0f;
     private float camPitch = 0.3f;
     private float camDistance = 8f;
     private final float HORIZONTAL_SENSITIVITY = 3f;
     private final float VERTICAL_SENSITIVITY = 1f;
 
-    // --- Combat integration ---
+    // Camera collision keeps the orbit camera out of terrain: a ray from the look
+    // pivot eases it inward when blocked, back out when clear. MARGIN keeps it a
+    // hair off the surface (no z-fight or clipping).
+    private float camCollisionK = 1f;
+    private final float CAMERA_COLLISION_MARGIN = 0.55f;
+    private final float CAMERA_COLLISION_SMOOTHING = 14f;
+    private final float CAMERA_COLLISION_MIN_DIST = 0.4f; // never cram the lens into the player
+
     private Weapons weapons;
     private CombatController combat;
     private CombatEffects effects;
 
-    // --- Inventory / HUD integration ---
     private Inventory inventory;
     private PlayerStats playerStats;
     private InventoryUI inventoryUI;
     private boolean inventoryOpen = false;
 
-    // --- Stage / roguelike system ---
     private StageManager stageManager;
 
-    // --- Persistent gameplay HUD (health bar + enemies remaining, bottom-left) ---
     private Node hudNode;
     private Geometry hudHpFill;
     private BitmapText hudHpText;
@@ -189,7 +179,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     private float hudSy = 1f;
     private static final float HUD_HP_FULL_WIDTH = 252f; // the fill bar's inner width at 1080p
 
-    // potion buff timers, drawn as draining colored pills above the enemy counter
     private final Geometry[] hudBuffTracks = new Geometry[PlayerStats.Buff.values().length];
     private final Geometry[] hudBuffFills = new Geometry[PlayerStats.Buff.values().length];
     private final BitmapText[] hudBuffSecs = new BitmapText[PlayerStats.Buff.values().length];
@@ -200,10 +189,8 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             new ColorRGBA(0.35f, 0.90f, 0.40f, 1f),  // Regen
     };
 
-    // --- colored particle aura hugging the player while a buff is running ---
     private PlayerBuffEffects buffEffects;
 
-    // --- transparent quick-use toolbar (1-5), bottom-center of the screen ---
     private final Geometry[] hudToolbarSlots = new Geometry[Inventory.TOOLBAR_SIZE];
     private final Geometry[] hudToolbarBorders = new Geometry[Inventory.TOOLBAR_SIZE];
     private final Geometry[] hudToolbarIcons = new Geometry[Inventory.TOOLBAR_SIZE];
@@ -215,12 +202,14 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     private boolean hudCursorShown = false;
     private boolean hudToolbarBuilt = false;
 
+    private boolean playerDead = false;
+    private DeathScreen deathScreen;
+
     private Node forestZoneNode;
 
     private EnvironmentCamera envCam;
     private boolean lightProbeBaked = false;
 
-    // --- Interactables (chests, NPCs) ---
     private List<Interactable> interactables = new ArrayList<>();
     private List<RigidBodyControl> interactablePhysics = new ArrayList<>();
     private boolean interactablesBuilt = false;
@@ -229,7 +218,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     private static final float INTERACT_RANGE = 3.5f;
 
     private final AnalogListener analogListener = (name, value, tpf) -> {
-        if (inventoryOpen) return; // so it doesn't orbit the camera while browsing
+        if (inventoryOpen) return; // don't orbit the camera while browsing
         switch (name) {
             case "MouseX+":
                 camYaw -= value * HORIZONTAL_SENSITIVITY;
@@ -284,14 +273,12 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
         viewPort.setBackgroundColor(new ColorRGBA(0.45f, 0.65f, 0.82f, 1f));
 
-        // Lemur (jME3's UI toolkit) needs to be up before we can make any GUI widgets.
-        // GuiGlobals.initialize(this) only needs the one call, before building Lemur UI.
+        // Lemur must be up before any GUI widgets are made
         GuiGlobals.initialize(this);
-        // The Glass theme comes from a Groovy stylesheet, which throws on JDKs newer than
-        // the bundled Groovy supports — so guard it so startup never breaks. Our HUD is
-        // plain jME3 (not Lemur), so a missing Glass theme has zero impact anyway.
+        // The Glass theme comes from a Groovy stylesheet that throws on newer JDKs,
+        // so guard it; our HUD is plain jME3, so a missing theme costs nothing.
         try {
-            BaseStyles.loadGlassStyle(); // gives Lemur its dark translucent sci-fi look
+            BaseStyles.loadGlassStyle();
         } catch (Throwable t) {
             System.err.println("Lemur Glass style unavailable: " + t);
         }
@@ -299,16 +286,10 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         bulletAppState = new BulletAppState();
         stateManager.attach(bulletAppState);
 
-        // Kill the default stats/FPS overlay and debug keys so they don't paint
-        // numbers over the bottom-left corner of the game UI.
+        // kill the default stats/FPS overlay and debug keys (they paint over the HUD)
         stateManager.detach(stateManager.getState(StatsAppState.class));
         stateManager.detach(stateManager.getState(DebugKeysAppState.class));
 
-        // World geometry, lighting and atmosphere all live in the Stage system now,
-        // which is why it's set up after the player and PlayerStats below —
-        // loadInitialStage() warps the player and needs those to already exist.
-
-        // Player
         Spatial playerModel = assetManager.loadModel("Models/Characters/Player/player.gltf");
 
         // Hardware (GPU) skinning of this model crashes the AMD OpenGL driver
@@ -363,125 +344,86 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             }
         }
 
-        // Combat system
         weapons = new Weapons();
         combat = new CombatController(cam, playerNode, animComposer, weapons);
-        combat.equip("iron_sword"); // iron sword is the default loadout
+        combat.equip("iron_sword"); // default loadout
 
-        // combat feel: damage numbers, shake, sounds, player flash
         effects = new CombatEffects(assetManager, rootNode, playerNode);
         combat.setEffects(effects);
-        // potion buff cosmetics: color-tinted particle aura on the player model
         buffEffects = new PlayerBuffEffects(assetManager, playerNode);
 
-        // Inventory + HUD
         ItemRegistry.registerDefaults();
         inventory = new Inventory();
         playerStats = new PlayerStats();
-        // whenever the player actually loses health, trigger the hurt flash + shake + sound
         playerStats.setDamageListener((amount, currentHealth) -> {
             if (effects != null) effects.onPlayerDamaged();
         });
-        // the stat system reads equipped gear live and the combat controller
-        // converts potion buffs into effective damage/attack speed
         playerStats.setInventory(inventory);
         combat.setPlayerStats(playerStats);
-        combat.equip("iron_sword"); // now that stats exist, push the default sword's values in
-
-        // Throw in some starter items so the inventory UI actually has stuff in it.
-        inventory.addItem("health_potion", 6);
-        inventory.addItem("speed_potion", 3);
-        inventory.addItem("strength_potion", 2);
-        inventory.addItem("critical_potion", 2);
-        inventory.addItem("regen_potion", 3);
-        inventory.addItem("dungeon_key", 2);
-        inventory.addItem("iron_ingot", 12);
-        inventory.addItem("iron_ore", 8);
-        inventory.addItem("leather", 8);
-        inventory.addItem("blood_shard", 1);
-        inventory.addItem("wolf_fang", 1);
-        inventory.addItem("ember_core", 1);
-        inventory.addItem("void_crystal", 1);
-        inventory.addItem("hunters_blade", 1);
-        inventory.addItem("heavy_blade", 1);
-        inventory.addItem("iron_sword", 1);
-        inventory.getToolbarSlot(0).itemId = "iron_sword";
-        inventory.getToolbarSlot(0).count = 1;
-        inventory.getToolbarSlot(1).itemId = "health_potion";
-        inventory.getToolbarSlot(1).count = 3;
-        inventory.getToolbarSlot(2).itemId = "dungeon_key";
-        inventory.getToolbarSlot(2).count = 2;
-        inventory.getToolbarSlot(3).itemId = "speed_potion";
-        inventory.getToolbarSlot(3).count = 2;
-        inventory.getToolbarSlot(4).itemId = "regen_potion";
-        inventory.getToolbarSlot(4).count = 2;
-        inventory.getEquipSlot(Inventory.EquipSlot.HELMET).itemId = "iron_helmet";
-        inventory.getEquipSlot(Inventory.EquipSlot.HELMET).count = 1;
-        inventory.getEquipSlot(Inventory.EquipSlot.CHESTPLATE).itemId = "iron_chestplate";
-        inventory.getEquipSlot(Inventory.EquipSlot.CHESTPLATE).count = 1;
-        inventory.getEquipSlot(Inventory.EquipSlot.BOOTS).itemId = "iron_boots";
-        inventory.getEquipSlot(Inventory.EquipSlot.BOOTS).count = 1;
-        playerStats.addSoulDust(250);
-        playerStats.addExperience(40f);
-
-        // ---- Stage / roguelike system ----
+combat.equip("iron_sword"); // now that stats exist, push the default sword's values in
+        grantStarterLoadout();
         // Fixed 29-stage rotation: each biome = 4 normal stages -> boss arena ->
         // safe hub (minus the Kingdom Court, which only has 3 regular stages),
         // looping back to a fresh Sanctuary after the Fallen King.
         stageManager = new StageManager(assetManager, rootNode, bulletAppState, this);
         stageManager.setPlayerStats(playerStats);
-        stageManager.addStage(new SanctuaryStage());                 // 0: hub
-        stageManager.addStage(new DarkwoodStage(1));                 // 1
-        stageManager.addStage(new DarkwoodStage(2));                 // 2
-        stageManager.addStage(new DarkwoodStage(3));                 // 3
-        stageManager.addStage(new DarkwoodStage(4));                 // 4
-        stageManager.addStage(new TreeWardenBossStage());            // 5: boss
-        stageManager.addStage(new SanctuaryStage());                 // 6: hub
-        stageManager.addStage(new AshenWastesStage(1));              // 7
-        stageManager.addStage(new AshenWastesStage(2));              // 8
-        stageManager.addStage(new AshenWastesStage(3));              // 9: horde
-        stageManager.addStage(new AshenWastesStage(4));              // 10
-        stageManager.addStage(new HellhoundBossStage());             // 11: boss
-        stageManager.addStage(new SanctuaryStage());                 // 12: hub
-        stageManager.addStage(new FrozenDepthsStage(1));             // 13
-        stageManager.addStage(new FrozenDepthsStage(2));             // 14
-        stageManager.addStage(new FrozenDepthsStage(3));             // 15: slowing
-        stageManager.addStage(new FrozenDepthsStage(4));             // 16
-        stageManager.addStage(new FrostGiantBossStage());            // 17: boss
-        stageManager.addStage(new SanctuaryStage());                 // 18: hub
-        stageManager.addStage(new JungleStage(1));                   // 19
-        stageManager.addStage(new JungleStage(2));                   // 20
-        stageManager.addStage(new JungleStage(3));                   // 21: double speed
-        stageManager.addStage(new JungleStage(4));                   // 22
-        stageManager.addStage(new BeekeeperBossStage());             // 23: boss
-        stageManager.addStage(new SanctuaryStage());                 // 24: hub
-        stageManager.addStage(new DarkRoyaleKingdomCourtStage(1));   // 25
-        stageManager.addStage(new DarkRoyaleKingdomCourtStage(2));   // 26
-        stageManager.addStage(new DarkRoyaleKingdomCourtStage(3));   // 27
-        stageManager.addStage(new FallenKingBossStage());            // 28: final boss
+        stageManager.addStage(new SanctuaryStage());
+        stageManager.addStage(new DarkwoodStage(1));
+        stageManager.addStage(new DarkwoodStage(2));
+        stageManager.addStage(new DarkwoodStage(3));
+        stageManager.addStage(new DarkwoodStage(4));
+        stageManager.addStage(new TreeWardenBossStage());
+        stageManager.addStage(new SanctuaryStage());
+        stageManager.addStage(new AshenWastesStage(1));
+        stageManager.addStage(new AshenWastesStage(2));
+        stageManager.addStage(new AshenWastesStage(3));
+        stageManager.addStage(new AshenWastesStage(4));
+        stageManager.addStage(new HellhoundBossStage());
+        stageManager.addStage(new SanctuaryStage());
+        stageManager.addStage(new FrozenDepthsStage(1));
+        stageManager.addStage(new FrozenDepthsStage(2));
+        stageManager.addStage(new FrozenDepthsStage(3));
+        stageManager.addStage(new FrozenDepthsStage(4));
+        stageManager.addStage(new FrostGiantBossStage());
+        stageManager.addStage(new SanctuaryStage());
+        stageManager.addStage(new JungleStage(1));
+        stageManager.addStage(new JungleStage(2));
+        stageManager.addStage(new JungleStage(3));
+        stageManager.addStage(new JungleStage(4));
+        stageManager.addStage(new BeekeeperBossStage());
+        stageManager.addStage(new SanctuaryStage());
+        stageManager.addStage(new DarkRoyaleKingdomCourtStage(1));
+        stageManager.addStage(new DarkRoyaleKingdomCourtStage(2));
+        stageManager.addStage(new DarkRoyaleKingdomCourtStage(3));
+        stageManager.addStage(new FallenKingBossStage());            
         stageManager.loadInitialStage(playerControl);
         combat.setEnemies(stageManager.getActiveEnemies());
 
-        // Build the Shop and Chest UIs before the interactables hold a reference to them,
-        // otherwise pressing F near a chest/NPC does nothing at all (handlers stay null).
+        // Shop and Chest UIs must exist before the interactables hold a reference
+        // to them, or pressing F near a chest/NPC does nothing.
         shopUI = new ShopUI(assetManager, renderManager, inputManager, cam, guiNode,
                 inventory, playerStats, settings.getWidth(), settings.getHeight());
         chestUI = new ChestUI(assetManager, renderManager, inputManager, cam, guiNode,
                 inventory, settings.getWidth(), settings.getHeight());
 
-        // Drop chests and NPCs into the Sanctuary (the starting stage)
         spawnChestsAndNPCs();
 
         inventoryUI = new InventoryUI(assetManager, renderManager, inputManager, cam,
                 inventory, playerStats, playerModel,
                 settings.getWidth(), settings.getHeight());
         guiNode.attachChild(inventoryUI.getNode());
-        // "Use" on a weapon in the inventory menu hands it to the combat controller
         inventoryUI.setWeaponEquipHandler(weaponId -> {
             if (combat != null) combat.equip(weaponId);
         });
 
         buildHUD(settings.getWidth(), settings.getHeight());
+
+        // built last so it always renders on top of every other GUI
+        deathScreen = new DeathScreen(assetManager, inputManager, settings.getWidth(), settings.getHeight());
+        deathScreen.setRespawnAction(this::startNewRun);
+        deathScreen.setMainMenuAction(() -> { /* MAIN MENU is a safe no-op stub */ });
+        guiNode.attachChild(deathScreen.getNode());
+        deathScreen.setVisible(false);
 
         initKeys();
 
@@ -495,12 +437,8 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
         inputManager.addListener(analogListener, "MouseX+", "MouseX-", "MouseY+", "MouseY-");
 
-        // Light-probe baking re-renders the whole scene into an environment map every
-        // frame and that crashed the native AMD OpenGL driver (EXCEPTION_ACCESS_VIOLATION
-        // in glBufferData). The Stage system handles lighting now, so the probe is just
-        // left unattached to keep things safe.
-        // envCam = new EnvironmentCamera();
-        // stateManager.attach(envCam);
+        // Light-probe baking re-renders the scene into an env map every frame and
+        // crashed the AMD OpenGL driver, so the probe is left unattached.
     }
 
     private String findClipContaining(String... keywords) {
@@ -708,9 +646,19 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         float scale = baseScale + rand.nextFloat() * 0.8f;
         tree.setLocalScale(scale);
 
-        CapsuleCollisionShape trunkShape = new CapsuleCollisionShape(0.7f, 3.5f);
+        // scale the hitbox with the model — a fixed capsule let you walk through trees
+        tree.updateModelBound();
+        float trunkRadius = 1.1f;
+        float collarHeight = 5f;
+        if (tree.getWorldBound() instanceof BoundingBox bbox) {
+            Vector3f extent = new Vector3f();
+            bbox.getExtent(extent);
+            trunkRadius = FastMath.clamp(Math.max(extent.x, extent.z) * 0.7f, 1.0f, 3.2f);
+            collarHeight = FastMath.clamp(2f * extent.y, 4f, 10f);
+        }
+        BoxCollisionShape trunkShape = new BoxCollisionShape(new Vector3f(trunkRadius, collarHeight / 2f, trunkRadius));
         RigidBodyControl physics = new RigidBodyControl(trunkShape, 0);
-        physics.setPhysicsLocation(new Vector3f(x, 1.8f, z));
+        physics.setPhysicsLocation(new Vector3f(x, collarHeight / 2f, z));
 
         forestZoneNode.attachChild(tree);
         bulletAppState.getPhysicsSpace().add(physics);
@@ -798,11 +746,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         }
     }
 
-    /**
-     * Disables GPU (hardware) skinning on every skinned mesh in the given spatial tree.
-     * Hardware skinning crashes this AMD OpenGL driver (EXCEPTION_ACCESS_VIOLATION in
-     * glBufferData when uploading the animated vertex data), so we force CPU skinning.
-     */
+    /** Forces CPU skinning; hardware skinning crashes this AMD OpenGL driver. */
     private void disableHardwareSkinning(Spatial spatial) {
         if (spatial == null) return;
 
@@ -851,17 +795,10 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         inputManager.addMapping("Dodge", new KeyTrigger(KeyInput.KEY_LSHIFT));
         inputManager.addMapping("Crouch", new KeyTrigger(KeyInput.KEY_LCONTROL));
 
-        // opens/closes the inventory
         inputManager.addMapping("Inventory", new KeyTrigger(KeyInput.KEY_E));
-
-        // talk to NPCs / open chests
         inputManager.addMapping("Interact", new KeyTrigger(KeyInput.KEY_F));
-
-        // mouse buttons drive combat
         inputManager.addMapping("AttackPrimary", new MouseButtonTrigger(MouseInput.BUTTON_LEFT));
         inputManager.addMapping("AttackSecondary", new MouseButtonTrigger(MouseInput.BUTTON_RIGHT));
-
-        // quick-use the five toolbar slots (1-5 are the supply bar, 0 is the weapon)
         inputManager.addMapping("Hotbar0", new KeyTrigger(KeyInput.KEY_1));
         inputManager.addMapping("Hotbar1", new KeyTrigger(KeyInput.KEY_2));
         inputManager.addMapping("Hotbar2", new KeyTrigger(KeyInput.KEY_3));
@@ -882,27 +819,149 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         );
     }
 
-    /**
-     * Dev tool bound to L: teleports to the next stage in the rotation. Cleanup
-     * of the stage we're leaving (enemies, portal, physics) all happens inside
-     * advanceStage(), so it's as safe as walking through a portal — just faster.
-     */
+    /** Dev tool bound to L: teleports to the next stage in the rotation. */
     private void devSkipStage() {
         if (stageManager == null) return;
         System.out.println("[DEV] L pressed — skipping past " + stageManager.getCurrentStageName());
         stageManager.advanceStage();
-        // teleport to the new stage's spawn point instead of dropping in mid-air
-        // (normally you'd enter via the portal, which the skip bypasses)
+        // warp to the spawn point; the skip bypasses the portal that normally
+        // does this, so the player would otherwise drop in mid-air
         if (stageManager.getCurrentStage() != null && playerControl != null) {
             playerControl.warp(stageManager.getCurrentStage().getPlayerSpawnPoint());
         }
     }
 
+    /** Locks all gameplay input and hands the cursor to the death screen. */
+    private void triggerDeath() {
+        if (playerDead) return;
+        playerDead = true;
+
+        if (inventoryOpen && inventoryUI != null) inventoryUI.setVisible(false);
+        inventoryOpen = false;
+        if (chestUI != null && chestUI.isOpen()) chestUI.closeChest();
+        if (shopUI != null && shopUI.isOpen()) shopUI.closeShop();
+
+        // lock gameplay outright: no movement, no attacks
+        forward = backward = left = right = false;
+        jumpHeld = false;
+        crouching = false;
+        dodging = false;
+        movementVelocity.set(0, 0, 0);
+        if (playerControl != null) {
+            playerControl.setWalkDirection(Vector3f.ZERO);
+            playerControl.setDucked(false);
+        }
+
+        playAnim("Death");
+
+        if (deathScreen != null) deathScreen.setVisible(true);
+        inputManager.setCursorVisible(true);
+        hudCursorShown = true;
+        System.out.println("[Death] The Cursed One has fallen.");
+    }
+
+    /**
+     * RESPAWN: ends the run and boots a brand-new one, identical to a fresh
+     * launch. The dead flag drops first, so a second click can't reset twice.
+     */
+    private void startNewRun() {
+        if (!playerDead) return;
+        playerDead = false;
+
+        // 1. wipe the run: inventory and stats back to fresh defaults
+        if (inventory != null) inventory.clearAll();
+        if (playerStats != null) playerStats.resetToDefaults();
+        grantStarterLoadout();
+        if (combat != null) combat.equip("iron_sword");
+
+        // 2. back to a brand-new Sanctuary (stage 0, loop 0, difficulty 1.0)
+        if (stageManager != null) {
+            stageManager.resetToFirstStage(playerControl);
+            if (combat != null) combat.setEnemies(stageManager.getActiveEnemies());
+        }
+
+        // 3. chests/NPCs get rebuilt fresh next frame in the Sanctuary
+        cleanupInteractables();
+
+        // 4. camera, FOV and every motion timer back to defaults
+        camYaw = 0f;
+        camPitch = 0.3f;
+        camDistance = 8f;
+        camCollisionK = 1f;
+        currentFov = BASE_FOV;
+        if (combat != null) combat.setSpeedFovBoost(0f);
+        movementVelocity.set(0, 0, 0);
+        forward = backward = left = right = false;
+        jumpHeld = false;
+        crouching = false;
+        dodging = false;
+        jumpBufferTimer = 0f;
+        coyoteTimer = 0f;
+        dodgeCooldown = 0f;
+        dodgeTimer = 0f;
+        landDip = 0f;
+        airborneFallPeak = 0f;
+
+        playAnim("Idle");
+        if (deathScreen != null) deathScreen.setVisible(false);
+        inputManager.setCursorVisible(false);
+        hudCursorShown = false;
+
+        System.out.println("[Respawn] A fresh run begins in the Sanctuary.");
+    }
+
+    /** Starting pack: potions, materials, the iron starter set, +250 dust, +40 XP. */
+    private void grantStarterLoadout() {
+        if (inventory == null || playerStats == null) return;
+
+        inventory.addItem("health_potion", 6);
+        inventory.addItem("speed_potion", 3);
+        inventory.addItem("strength_potion", 2);
+        inventory.addItem("critical_potion", 2);
+        inventory.addItem("regen_potion", 3);
+        inventory.addItem("dungeon_key", 2);
+        inventory.addItem("iron_ingot", 12);
+        inventory.addItem("iron_ore", 8);
+        inventory.addItem("leather", 8);
+        inventory.addItem("blood_shard", 1);
+        inventory.addItem("wolf_fang", 1);
+        inventory.addItem("ember_core", 1);
+        inventory.addItem("void_crystal", 1);
+        inventory.addItem("hunters_blade", 1);
+        inventory.addItem("heavy_blade", 1);
+        inventory.addItem("iron_sword", 1);
+        inventory.getToolbarSlot(0).itemId = "iron_sword";
+        inventory.getToolbarSlot(0).count = 1;
+        inventory.getToolbarSlot(1).itemId = "health_potion";
+        inventory.getToolbarSlot(1).count = 3;
+        inventory.getToolbarSlot(2).itemId = "dungeon_key";
+        inventory.getToolbarSlot(2).count = 2;
+        inventory.getToolbarSlot(3).itemId = "speed_potion";
+        inventory.getToolbarSlot(3).count = 2;
+        inventory.getToolbarSlot(4).itemId = "regen_potion";
+        inventory.getToolbarSlot(4).count = 2;
+        inventory.getEquipSlot(Inventory.EquipSlot.HELMET).itemId = "iron_helmet";
+        inventory.getEquipSlot(Inventory.EquipSlot.HELMET).count = 1;
+        inventory.getEquipSlot(Inventory.EquipSlot.CHESTPLATE).itemId = "iron_chestplate";
+        inventory.getEquipSlot(Inventory.EquipSlot.CHESTPLATE).count = 1;
+        inventory.getEquipSlot(Inventory.EquipSlot.BOOTS).itemId = "iron_boots";
+        inventory.getEquipSlot(Inventory.EquipSlot.BOOTS).count = 1;
+        playerStats.addSoulDust(250);
+        playerStats.addExperience(40f);
+    }
+
     @Override
     public void onAction(String name, boolean isPressed, float tpf) {
+        // a dead player's only interaction is the death screen
+        if (playerDead) {
+            if (isPressed && "AttackPrimary".equals(name) && deathScreen != null) {
+                Vector2f cur = inputManager.getCursorPosition();
+                deathScreen.handleClick(cur.x, cur.y);
+            }
+            return;
+        }
         switch (name) {
             case "DevSkipStage":
-                // dev tool: hop to the next stage regardless of enemies left
                 if (isPressed) devSkipStage();
                 return;
 
@@ -922,13 +981,11 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             case "Dodge":
             case "Crouch":
             case "AttackPrimary":
-                // When some UI is open, hand the click to it (inventory select /
-                // drag-drop) instead of triggering combat.
+                // when a UI is open, hand the click to it instead of combat
                 if (isUiOpen()) {
                     if (isPressed && inventoryOpen && inventoryUI != null) inventoryUI.handlePrimaryClick();
                     return;
                 }
-                // an in-world right-click menu owns mouse clicks while it's up
                 if (isPressed && inventoryUI != null && inventoryUI.isContextMenuOpen()) {
                     inventoryUI.handlePrimaryClick();
                     return;
@@ -936,14 +993,11 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                 break;
 
             case "AttackSecondary":
-                // drop gameplay input whenever a UI is up, but let the inventory
-                // see it — right-click opens the item's action menu. Only on the
-                // press so mouse-up doesn't instantly close it again.
+                // only on the press, so mouse-up doesn't close the menu it opened
                 if (isUiOpen()) {
                     if (isPressed && inventoryOpen && inventoryUI != null) inventoryUI.handleSecondaryClick();
                     return;
                 }
-                // right-clicking an in-world toolbar slot opens its action menu
                 if (isPressed && inventoryUI != null) {
                     if (inventoryUI.isContextMenuOpen()) {
                         inventoryUI.closeContextMenu();
@@ -974,14 +1028,11 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                 backward = isPressed;
                 break;
             case "Jump":
-                // jump is queued so it works with coyote time and buffers the
-                // press when it arrives mid-air before a landing
+                // queued so it works with coyote time and buffers a mid-air press
                 if (isPressed) queueJump();
                 else jumpHeld = false;
                 break;
             case "Dodge":
-                // lives on lastMoveDir so direction changes mid-dodge feel
-                // instant; falls back to the camera when standing still
                 if (isPressed && !dodging && dodgeCooldown <= 0f) startDodge();
                 break;
             case "Crouch":
@@ -1000,7 +1051,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                 }
                 break;
 
-            // toolbar quick-use: 1-5 map to the supply bar slots
             case "Hotbar0":
             case "Hotbar1":
             case "Hotbar2":
@@ -1011,10 +1061,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         }
     }
 
-    /**
-     * Uses whatever sits in a toolbar slot. Potions get drunk, the weapon slot
-     * re-equips the readied weapon; keys and materials sit there but never get used.
-     */
     private void useToolbarSlot(int slotIndex) {
         if (inventory == null) return;
         Slot slot = inventory.getToolbarSlot(slotIndex);
@@ -1024,22 +1070,17 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
         switch (item.getGroup()) {
             case CONSUMABLE:
-                // drink it if the effect is non-empty; keys/materials never fire
                 if (playerStats.consume(item)) inventory.removeFromToolbar(slotIndex, 1);
                 break;
             case WEAPON:
                 if (combat != null) combat.equip(item.id);
                 break;
             default:
-                // keys and materials are guarded by consume() returning false
                 break;
         }
     }
 
-    /**
-     * True if any UI overlay is open (inventory, NPC shop, or chest),
-     * in which case the game world should be paused and gameplay input ignored.
-     */
+    /** True if any UI overlay is open (the world is then paused). */
     private boolean isUiOpen() {
         if (inventoryOpen) return true;
         if (chestUI != null && chestUI.isOpen()) return true;
@@ -1052,7 +1093,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         inventoryUI.setVisible(inventoryOpen);
 
         if (inventoryOpen) {
-            // freeze the player in place while they browse.
             inputManager.setCursorVisible(true);
             if (playerControl != null) playerControl.setWalkDirection(Vector3f.ZERO);
             forward = backward = left = right = false;
@@ -1065,8 +1105,8 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         dodging = true;
         dodgeTimer = DODGE_DURATION;
         dodgeCooldown = DODGE_COOLDOWN_TIME;
-        // dodge in the last held move direction so it reads as a momentum burst;
-        // with no direction held it still fires, straight ahead of the camera
+        // dodge in the last held direction so it reads as a momentum burst;
+        // with nothing held it still fires, straight ahead of the camera
         dodgeDirection.set(lastMoveDir);
         if (dodgeDirection.lengthSquared() < 0.01f) {
             dodgeDirection.set(cam.getDirection()).setY(0);
@@ -1076,12 +1116,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         playAnim("Roll");
     }
 
-    /**
-     * Jump request that plays by the platforming rules: if the player is (or
-     * very recently was) on the ground the jump fires immediately; otherwise
-     * the press is buffered for a moment so it executes on landing. Releasing
-     * jump early cuts the arc via the gravity spike in update.
-     */
+    /** Jump with coyote time and buffering, per the platforming rules. */
     private void queueJump() {
         jumpHeld = true;
         if (playerControl.isOnGround() || coyoteTimer > 0f) {
@@ -1094,13 +1129,17 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
     @Override
     public void simpleUpdate(float tpf) {
+        // the world is frozen for a dead run; only the death screen reacts
+        if (playerDead) {
+            if (deathScreen != null) deathScreen.update(tpf);
+            return;
+        }
 
         if (inventoryUI != null) {
             inventoryUI.update(tpf, cam);
         }
 
-        // while the in-world toolbar menu is up, reveal the cursor so the
-        // player can aim at its options (it's hidden during normal gameplay)
+        // the in-world toolbar menu needs the cursor to be aimable
         boolean menuUp = inventoryUI != null && inventoryUI.isContextMenuOpen();
         boolean wantCursor = inventoryOpen || menuUp;
         if (wantCursor != hudCursorShown) {
@@ -1108,8 +1147,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             hudCursorShown = wantCursor;
         }
 
-        // keep the buff particle auras in sync with the potion timers (also while
-        // browsing the paused inventory, so the aura is visible right on drink)
+        // also ticks while the inventory is open, so the aura shows on drink
         if (buffEffects != null) {
             buffEffects.update(playerStats);
         }
@@ -1118,7 +1156,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             effects.update(tpf);
         }
 
-        // the world is paused while inventory/shop/chest is open.
         if (isUiOpen()) {
             return;
         }
@@ -1128,19 +1165,22 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             lightProbeBaked = true;
         }
 
-        // ---- Stage / roguelike system: update AI, portals, transitions ----
         if (stageManager != null) {
             stageManager.update(tpf, playerNode.getWorldTranslation(), playerControl);
         }
         if (combat != null) {
             combat.setEnemies(stageManager != null ? stageManager.getActiveEnemies() : null);
             combat.update(tpf);
-        // potion buffs tick down and regen does its thing every frame
-        if (playerStats != null) playerStats.update(tpf);
+            if (playerStats != null) playerStats.update(tpf);
+
+            // fires once: the world freezes this same frame, so no follow-up
+            // damage, movement or portal checks can run on a dead run
+            if (playerStats != null && playerStats.getHealth() <= 0f && !playerDead) {
+                triggerDeath();
+                return;
+            }
         }
 
-        // Chests/NPCs only live in the Sanctuary — rebuild them when we come back,
-        // and tear them down (physics included) when we move to another biome.
         updateSanctuaryInteractables();
 
         updateHUD();
@@ -1152,8 +1192,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         float verticalVelocity = playerControl.getVelocity().y;
         boolean grounded = playerControl.isOnGround();
 
-        // Jump forgiveness: while grounded the coyote window stays full; the
-        // moment a buffered press (made mid-air) touches down it fires the jump.
         if (grounded) {
             coyoteTimer = COYOTE_TIME;
             if (jumpBufferTimer > 0f) {
@@ -1165,8 +1203,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             if (jumpBufferTimer > 0f) jumpBufferTimer -= tpf;
         }
 
-        // Variable jump: hold Space for the full arc; release mid-rise and the
-        // ascent is cut with a sharp gravity spike so taps give quick short hops.
+        // release mid-rise and the gravity spike cuts the ascent, so taps hop
         float gravityScale;
         if (verticalVelocity < 0f) {
             gravityScale = FALL_GRAVITY_MULTIPLIER;
@@ -1195,33 +1232,24 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             lastMoveDir.set(walkDirection).normalizeLocal();
         }
 
-        // speed potions and leggings/boots feed straight into the target speed;
-        // the eased velocity below is what actually drives the capsule.
         float baseSpeed = playerStats != null ? playerStats.getMovementSpeed() : 29f;
         float targetSpeed = crouching ? baseSpeed * CROUCH_SPEED_MULTIPLIER : baseSpeed;
 
-        // Speed is kept separate from heading on purpose. Lerping the whole
-        // velocity vector toward the new target dips the speed to ~70% mid-turn
-        // and leaves a laggy settle — instead, we keep the carried magnitude
-        // (real momentum) and *steer* the direction through a smooth arc at a
-        // rate that scales with the angle. Small corrections snap shut, wide
-        // reversals sweep, and nothing ever snaps 90°.
+        // Speed is kept separate from heading on purpose. Lerping the whole velocity
+        // vector toward the target dips speed to ~70% mid-turn and settles laggy —
+        // instead we keep the carried magnitude and *steer* the direction on an
+        // angle-scaled arc, so nothing ever snaps 90°.
         Vector3f curDir = new Vector3f(movementVelocity);
         float curSpeed = curDir.length();
         curDir.normalizeLocal();
 
         if (isMoving) {
-            // walkDirection is the raw summed input (square-root-2 long on
-            // diagonals); normalize it here for a clean desired heading
+            // raw summed input, square-root-2 long on diagonals
             Vector3f inputDir = walkDirection.normalizeLocal();
 
             if (curSpeed > MOMENTUM_EPS) {
-                // smallest signed angle from current heading to input heading.
-                // atan2(crossY, dot) comes out with the opposite winding to
-                // jME's right-handed +Y rotation, so we negate it: positive here
-                // means "turn the standard +Y right-handed way toward the input."
-                // (Without this, steering rotates away from the input and the
-                // heading U-turns through 180° instead of curving to the combo.)
+                // atan2(crossY, dot) winds opposite to jME's right-handed +Y
+                // rotation, so negate it; otherwise the heading U-turns 180°
                 float dot = FastMath.clamp(curDir.dot(inputDir), -1f, 1f);
                 float crossY = curDir.x * inputDir.z - curDir.z * inputDir.x;
                 float signedAngle = -FastMath.atan2(crossY, dot);
@@ -1233,7 +1261,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                 float turnStep = Math.min(angle, turnRate * tpf);
 
                 if (turnStep >= angle) {
-                    curDir.set(inputDir); // fully aligned
+                    curDir.set(inputDir);
                 } else {
                     turnQuat.fromAngleAxis(turnStep * (float) Math.signum(signedAngle), Vector3f.UNIT_Y);
                     turnQuat.multLocal(curDir);
@@ -1242,8 +1270,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                 curDir.set(inputDir);
             }
 
-            // strong forward acceleration from rest, quick brake when the target
-            // speed drops (crouch), same split the air uses
             float speedRate = targetSpeed > curSpeed
                     ? (airborne ? AIR_ACCELERATION_RATE : MOVE_ACCELERATION_RATE)
                     : (airborne ? AIR_BRAKE_RATE : MOVE_BRAKE_RATE);
@@ -1252,7 +1278,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
             movementVelocity.set(curDir).multLocal(curSpeed);
         } else {
-            // no input: quick tidy stop on the ground, gentle glide in the air
             float brakeRate = airborne ? AIR_BRAKE_RATE : MOVE_BRAKE_RATE;
             movementVelocity.multLocal((float) FastMath.exp(-brakeRate * tpf));
         }
@@ -1260,8 +1285,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         if (dodging) {
             dodgeTimer -= tpf;
             playerControl.setWalkDirection(dodgeDirection.mult(DODGE_SPEED));
-            // stretch/blend the roll clip to the burst duration so the pose
-            // matches the faster dodge instead of playing at its raw length
+            // stretch the roll clip so the pose matches the faster dodge
             if (rollClipLength > 0f && animComposer != null) {
                 animComposer.setGlobalSpeed(Math.min(3f, rollClipLength / DODGE_DURATION));
             }
@@ -1270,8 +1294,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                 dodging = false;
             }
         } else {
-            // the roll rides at full speed unclamped; walking carries the eased
-            // velocity so strafes and backpedals keep a hint of momentum.
+            // eased velocity, so strafes and backpedals keep a hint of momentum
             playerControl.setWalkDirection(movementVelocity);
 
             if (isMoving) {
@@ -1284,15 +1307,12 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         } else if (airborne && (jumpClipName != null || fallClipName != null)) {
             String airClip = verticalVelocity > 0f && jumpClipName != null ? jumpClipName : fallClipName;
             playAnim(airClip != null ? airClip : jumpClipName);
-            // air clips always play at normal pace
             if (animComposer != null) animComposer.setGlobalSpeed(1f);
         } else if (crouching && crouchIdleClipName != null) {
             playAnim(isMoving && crouchWalkClipName != null ? crouchWalkClipName : crouchIdleClipName);
             if (animComposer != null) animComposer.setGlobalSpeed(1f);
         } else {
-            // use the model's run clip so fast movement looks like running, then
-            // play it hot in proportion to actual velocity — the sprint reads as
-            // a sprint instead of a moonwalk
+            // run clip played hot in proportion to real velocity, not a moonwalk
             String moveClip = runClipName != null ? runClipName : "Walk";
             playAnim(isMoving ? moveClip : "Idle");
             float speedRatio = baseSpeed <= 0f ? 1f
@@ -1303,7 +1323,9 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             if (animComposer != null) animComposer.setGlobalSpeed(animScale);
         }
 
-        Vector3f playerPos = playerNode.getWorldTranslation().clone();
+Vector3f playerPos = playerNode.getWorldTranslation().clone();
+
+        Vector3f pivot = playerPos.add(0f, 1.5f, 0f);
 
         Vector3f offset = new Vector3f(
                 FastMath.sin(camYaw) * FastMath.cos(camPitch),
@@ -1311,19 +1333,13 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                 FastMath.cos(camYaw) * FastMath.cos(camPitch)
         ).multLocal(camDistance);
 
-        // the combat shake rides on top of the orbit position; getShakeOffset
-        // returns zero when nothing's kicking, so the camera stays untouched
         Vector3f shakeOffset = effects != null ? effects.getShakeOffset(tpf) : Vector3f.ZERO;
 
-        // drift the orbit camera toward travel so movement reads on screen;
-        // scales with eased velocity and vanishes when stationary (never yanks)
         Vector3f leanOffset = movementVelocity.mult(CAMERA_LEAN_FACTOR);
 
-        // Hard landing: a real fall dips the camera a moment and kicks a tiny
-        // shake; recovery is fast and movement is never locked — the player is
-        // already sprinting again the frame they touch down. Fall speed is the
-        // peak reached *while airborne* because the capsule's own velocity is
-        // already ~0 by the frame it registers as grounded.
+        // Hard landing dips the camera briefly; movement is never locked. Fall
+        // speed is the peak reached *while airborne*, since the capsule's own
+        // velocity is ~0 by the frame it registers as grounded.
         if (airborne) {
             if (verticalVelocity < 0f) airborneFallPeak = Math.min(airborneFallPeak, verticalVelocity);
         } else {
@@ -1336,18 +1352,56 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         wasAirborne = airborne;
         landDip = Math.max(0f, landDip - tpf * LANDING_FEEDBACK_RECOVERY);
 
-        // FOV swells subtly with horizontal speed and eases back when cruising,
-        // so velocity is felt without a constant zoom wobble
         float fovTarget = BASE_FOV + FOV_SPEED_MAX_INCREASE
                 * FastMath.clamp(movementVelocity.length() / (baseSpeed <= 0f ? 29f : baseSpeed), 0f, 1f);
         currentFov += (fovTarget - currentFov) * FastMath.clamp(tpf * FOV_RESPONSE, 0f, 1f);
         if (combat != null) combat.setSpeedFovBoost(currentFov - BASE_FOV);
 
-        cam.setLocation(playerPos.add(offset).add(0, 1.5f - landDip, 0).add(shakeOffset).addLocal(leanOffset));
-        cam.lookAt(playerPos.add(0, 1.5f, 0), Vector3f.UNIT_Y);
+        Vector3f desiredPos = pivot.add(offset).add(0f, -landDip, 0f)
+                .add(shakeOffset).addLocal(leanOffset);
+        camCollisionK = updateCameraCollision(pivot, desiredPos, tpf);
+
+        Vector3f resolved = pivot.add(offset.mult(camCollisionK))
+                .add(0f, -landDip, 0f).add(shakeOffset).addLocal(leanOffset);
+        cam.setLocation(resolved);
+        cam.lookAt(pivot, Vector3f.UNIT_Y);
     }
 
-    // =================== persistent gameplay HUD ===================
+    private float updateCameraCollision(Vector3f pivot, Vector3f desiredPos, float tpf) {
+        Vector3f rayDir = desiredPos.subtract(pivot);
+        float rayLen = rayDir.length();
+        float targetK = 1f;
+        if (rayLen > 1e-4f) {
+            rayDir.multLocal(1f / rayLen);
+            CollisionResults hits = new CollisionResults();
+            rootNode.collideWith(new Ray(pivot, rayDir), hits);
+            for (CollisionResult hit : hits) {
+                if (isCameraIgnored(hit.getGeometry())) continue;
+                // first hit is the nearest; clamp the camera short of the surface
+                targetK = Math.max(CAMERA_COLLISION_MIN_DIST / rayLen,
+                        Math.min(1f, (hit.getDistance() - CAMERA_COLLISION_MARGIN) / rayLen));
+                break;
+            }
+        } else {
+            targetK = 0f;
+        }
+        return camCollisionK + (targetK - camCollisionK)
+                * (1f - FastMath.exp(-CAMERA_COLLISION_SMOOTHING * tpf));
+    }
+
+    private boolean isCameraIgnored(Spatial s) {
+        if (s instanceof BitmapText) return true;
+        while (s != null) {
+            String n = s.getName();
+            if (n != null && (n.equals("Player") || n.equals("Boss") || n.equals("Portal")
+                    || n.equals("Sky") || n.equals("HitSpark") || n.equals("DeathBurst")
+                    || n.startsWith("Enemy"))) {
+                return true;
+            }
+            s = s.getParent();
+        }
+        return false;
+    }
 
     private Geometry makeHudQuad(float x, float y, float w, float h, ColorRGBA color) {
         Geometry g = new Geometry("HudQuad", new Quad(w, h));
@@ -1371,9 +1425,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         float fillX = margin + inset;
         float fillY = 20f * hudSy + inset;
 
-        // the dark backing bar behind the hp fill
         makeHudQuad(margin, 20f * hudSy, barW, barH, new ColorRGBA(0.08f, 0.08f, 0.10f, 0.85f));
-        // green hp fill — updateHUD scales its width every frame
         hudHpFill = makeHudQuad(fillX, fillY, HUD_HP_FULL_WIDTH * hudSx, 16f * hudSy,
                 new ColorRGBA(0.2f, 0.85f, 0.25f, 1f));
 
@@ -1386,7 +1438,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         hudHpText.setLocalTranslation(fillX + 4f * hudSx, fillY + 1f * hudSy, 0);
         hudNode.attachChild(hudHpText);
 
-        // enemy counter sitting just below the hp bar
         hudEnemiesText = new BitmapText(font, false);
         hudEnemiesText.setSize(16f * hudSy);
         hudEnemiesText.setColor(new ColorRGBA(0.9f, 0.9f, 0.95f, 1f));
@@ -1394,8 +1445,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         hudEnemiesText.setLocalTranslation(margin, (20f * hudSy + barH + 8f * hudSy), 0);
         hudNode.attachChild(hudEnemiesText);
 
-        // potion buff timers: a row of tiny draining pills above the enemy counter,
-        // each tinted with its buff's color and showing the seconds left
         float buffX = margin;
         float buffY = (20f * hudSy + barH + 26f * hudSy) + 3f * hudSy;
         float buffW = 34f * hudSx;
@@ -1420,8 +1469,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             buffX += buffW + buffGap;
         }
 
-        // attack cooldown indicator, centered along the bottom edge. The fill
-        // drains right-to-left as the current weapon comes off cooldown.
         float cdW = 200f * hudSx;
         float cdH = 12f * hudSy;
         float cdX = (screenW - cdW) / 2f;
@@ -1436,7 +1483,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         updateHUD();
     }
 
-    /** Five semi-transparent quick-use slots (keys 1-5) centered above the bar. */
     private void buildToolbarHUD(BitmapFont font, int screenW) {
         hudToolbarSlot = 46f * hudSx;
         hudToolbarGap = 8f * hudSx;
@@ -1448,7 +1494,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         for (int i = 0; i < Inventory.TOOLBAR_SIZE; i++) {
             float x = hudToolbarLeft + i * (hudToolbarSlot + hudToolbarGap);
 
-            // transparent background so the world still shows through
             hudToolbarSlots[i] = makeHudQuad(x, hudToolbarBottom, hudToolbarSlot, hudToolbarSlot,
                     new ColorRGBA(0.04f, 0.05f, 0.06f, 0.28f));
             hudToolbarBorders[i] = makeHudQuad(x - 1f, hudToolbarBottom - 1f,
@@ -1480,11 +1525,9 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         hudToolbarBuilt = true;
     }
 
-    /** Paints the current inventory toolbar onto the HUD slots each frame. */
     private void refreshToolbarHud() {
         if (!hudToolbarBuilt || inventory == null) return;
 
-        // which toolbar slot holds the weapon the combat controller is using?
         int armedWeapon = -1;
         if (combat != null && combat.getEquippedWeaponId() != null) {
             String armed = combat.getEquippedWeaponId();
@@ -1528,7 +1571,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
                         hudToolbarBottom + ch / 2f + 2f * hudSy, 0f);
             }
 
-            // armed weapon glows green so it's obvious what you'll swing
             hudToolbarBorders[i].getMaterial().setColor("Color",
                     i == armedWeapon
                             ? new ColorRGBA(0.35f, 0.85f, 0.45f, 0.9f)
@@ -1536,7 +1578,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         }
     }
 
-    /** Returns the toolbar index under the cursor, or -1. */
     private int hudToolbarSlotAt(float px_, float py_) {
         if (!hudToolbarBuilt) return -1;
         for (int i = 0; i < Inventory.TOOLBAR_SIZE; i++) {
@@ -1549,7 +1590,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         return -1;
     }
 
-    /** Loads a HUD item icon by path, cached and missing-file-safe. */
     private Texture loadHudIcon(String path) {
         if (path == null) return null;
         Texture tex = hudIconCache.get(path);
@@ -1570,8 +1610,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         float maxHp = Math.max(1f, playerStats.getMaxHealth());
         float ratio = Math.max(0f, Math.min(1f, playerStats.getHealth() / maxHp));
 
-        // hp fill goes green -> yellow -> red as health falls
-        ColorRGBA fillColor;
+        ColorRGBA fillColor;  // green -> yellow -> red as health falls
         if (ratio > 0.5f) {
             fillColor = new ColorRGBA(0.2f, 0.85f, 0.25f, 1f);
         } else if (ratio > 0.25f) {
@@ -1583,11 +1622,10 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         hudHpFill.setLocalScale(ratio, 1f, 1f);
         hudHpText.setText((int) playerStats.getHealth() + " / " + (int) maxHp);
 
-        // cooldown bar mirrors the weapon's remaining cooldown, draining when ready
         if (hudCooldownFill != null) {
             float pending = combat != null ? combat.getCooldownFraction() : 0f;
             float fill = 1f - pending;
-            // leave a faint sliver so an "almost ready" bar doesn't vanish
+            // faint sliver so an "almost ready" bar doesn't vanish
             hudCooldownFill.setLocalScale(Math.max(0.02f, fill), 1f, 1f);
         }
 
@@ -1600,8 +1638,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
             hudEnemiesText.setText("Enemies: 0");
         }
 
-        // potion buff timers: show each active buff as a draining colored pill. When
-        // the timer hits zero the pill vanishes and the stats have already reset.
         PlayerStats.Buff[] buffs = PlayerStats.Buff.values();
         for (int i = 0; i < buffs.length; i++) {
             float frac = playerStats.buffFraction(buffs[i]);
@@ -1619,11 +1655,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         refreshToolbarHud();
     }
 
-    /**
-     * Spawn chests and NPCs in the Sanctuary/Forest biome.
-     */
     private void spawnChestsAndNPCs() {
-        // scatter three chests around the area
         Chest chest1 = new Chest(new Vector3f(10f, 0.6f, -15f));
         chest1.build(assetManager, rootNode, bulletAppState);
         chest1.addLoot("health_potion", 3);
@@ -1657,10 +1689,8 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
         System.out.println("Spawned 3 chests in Sanctuary");
 
-        // two shopkeeper NPCs
         NPC merchant1 = new NPC("Merchant Elara", new Vector3f(-10f, 0f, -20f));
         merchant1.build(assetManager, rootNode, bulletAppState);
-        // stock the shop with items and prices
         merchant1.addShopItem("health_potion", 15);
         merchant1.addShopItem("speed_potion", 18);
         merchant1.addShopItem("strength_potion", 22);
@@ -1679,7 +1709,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
         NPC merchant2 = new NPC("Blacksmith Kain", new Vector3f(15f, 0f, 5f));
         merchant2.build(assetManager, rootNode, bulletAppState);
-        // stock the shop with items and prices
         merchant2.addShopItem("iron_sword", 100);
         merchant2.addShopItem("hunters_blade", 120);
         merchant2.addShopItem("heavy_blade", 140);
@@ -1696,11 +1725,6 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         System.out.println("Spawned 2 NPCs in Sanctuary");
     }
 
-    /**
-     * Keep Sanctuary's chests and NPCs in sync with the current stage:
-     * build them when entering the Sanctuary, remove them (and their physics)
-     * when leaving to any other biome.
-     */
     private void updateSanctuaryInteractables() {
         if (stageManager == null) return;
 
@@ -1726,12 +1750,11 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     }
 
     private void handleInteract() {
-        // see if anything interactable is in range
         Vector3f playerPos = playerNode.getWorldTranslation();
         for (Interactable interactable : interactables) {
             if (interactable.isInRange(playerPos, INTERACT_RANGE)) {
                 interactable.interact();
-                return; // only take the closest one
+                return;
             }
         }
     }

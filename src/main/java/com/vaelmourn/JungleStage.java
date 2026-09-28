@@ -19,20 +19,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-/**
- * JungleStage — Stage 4: Dense tropical jungle teeming with palms, rock and vine.
- *
- * Built with the same model-loaded approach as the original forest biome: palm
- * trees and stone models are loaded from Models/Environment/Forest and scattered
- * with physics collision. Comes after the snow biome (Frozen Depths).
- *
- * Variants 1-4 scale difficulty; variant 3 is the FAST stage — its enemies move
- * at 2x the normal speed (nothing else about them changes).
- */
+/** JungleStage — Stage 4: dense tropical jungle (palms, rock, vine); variant 3 doubles enemy speed. */
 public class JungleStage implements Stage {
 
     private static final float HALF_EXTENT = 50f;
     private static final float FAST_STAGE_SPEED_MULTIPLIER = 2f; // Jungle 3 modifier
+    private static final String[] ENEMY_MODELS = {
+            "Models/Characters/enemy/jungle_enemy.gltf",
+            "Models/Characters/enemy/jungle_enemy2.gltf",
+            "Models/Characters/enemy/jungle_enemy3.gltf"
+    };
 
     private final int variant;
     private Node stageNode;
@@ -83,9 +79,10 @@ public class JungleStage implements Stage {
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
 
+            String modelPath = ENEMY_MODELS[(variant + i) % ENEMY_MODELS.length];
             EnemyController enemy = new EnemyController(
                 assetManager, stageNode, bulletAppState,
-                new Vector3f(x, 5f, z), 3, loopCount, scale
+                new Vector3f(x, 5f, z), 3, loopCount, scale, false, modelPath
             );
             // Jungle 3: speed-doubled hunters. Just movement — no stat inflation.
             if (fast) {
@@ -104,12 +101,12 @@ public class JungleStage implements Stage {
 
     @Override
     public ColorRGBA getSkyColor() {
-        return new ColorRGBA(0.35f, 0.55f, 0.4f, 1f); // thick, muggy jungle-green haze
+        return new ColorRGBA(0.35f, 0.55f, 0.4f, 1f);
     }
 
     @Override
     public ColorRGBA getAmbientColor() {
-        return new ColorRGBA(0.35f, 0.6f, 0.35f, 1f).mult(0.7f); // cool green shade under the canopy
+        return new ColorRGBA(0.35f, 0.6f, 0.35f, 1f).mult(0.7f);
     }
 
     @Override
@@ -129,10 +126,8 @@ public class JungleStage implements Stage {
 
     @Override
     public int getStageIndex() {
-        return 4; // stage 4, right after Frozen Depths (3)
+        return 4;
     }
-
-    // ---- Environment building (model-loaded, same approach as the original forest) ----
 
     private void buildGroundPlane(AssetManager assetManager, BulletAppState bulletAppState) {
         Spatial groundModel = assetManager.loadModel("Models/Environment/Forest/ground_grass.glb");

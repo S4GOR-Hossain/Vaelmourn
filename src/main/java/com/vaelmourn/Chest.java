@@ -38,9 +38,6 @@ public class Chest implements Interactable {
         this.node.setLocalTranslation(position);
     }
 
-    /**
-     * Build the chest geometry and physics in the world.
-     */
     public void build(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState) {
         // Just a plain box for the chest body
         Box chestBox = new Box(0.5f, 0.6f, 0.5f);
@@ -48,7 +45,7 @@ public class Chest implements Interactable {
 
         Material chestMat = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
         chestMat.setBoolean("UseMaterialColors", true);
-        chestMat.setColor("Diffuse", new ColorRGBA(0.6f, 0.4f, 0.1f, 1f)); // brownish wood
+        chestMat.setColor("Diffuse", new ColorRGBA(0.6f, 0.4f, 0.1f, 1f));
         chestMat.setColor("Specular", ColorRGBA.White);
         chestMat.setFloat("Shininess", 8f);
         chestGeo.setMaterial(chestMat);
@@ -56,16 +53,12 @@ public class Chest implements Interactable {
         node.attachChild(chestGeo);
         parentNode.attachChild(node);
 
-        // Static body so it doesn't get shoved around
         BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(0.5f, 0.6f, 0.5f));
         physics = new RigidBodyControl(shape, 0);
         physics.setPhysicsLocation(position);
         bulletAppState.getPhysicsSpace().add(physics);
     }
 
-    /**
-     * Add loot to this chest.
-     */
     public void addLoot(String itemId, int count) {
         lootItems.add(itemId);
         lootCounts.add(count);
@@ -88,15 +81,11 @@ public class Chest implements Interactable {
         opened = true;
         System.out.println("Chest opened! Contains " + lootItems.size() + " item stacks.");
 
-        // Open the loot UI if a handler was attached
         if (chestUI != null) {
             chestUI.show(lootItems, lootCounts);
         }
     }
 
-    /**
-     * Set the UI handler for this chest.
-     */
     public void setChestUI(ChestUI ui) {
         this.chestUI = ui;
     }
@@ -119,9 +108,6 @@ public class Chest implements Interactable {
         return opened;
     }
 
-    /**
-     * Interface for the chest UI callback.
-     */
     public interface ChestUI {
         void show(List<String> itemIds, List<Integer> counts);
     }

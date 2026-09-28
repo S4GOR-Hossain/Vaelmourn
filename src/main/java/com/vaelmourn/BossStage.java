@@ -17,18 +17,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * BossStage — shared skeleton for the fixed biome boss arenas.
- *
- * Every arena is the same shape on purpose: a large, open, obstacle-free
- * circular combat disc with the boss spawning dead-center, a decorative
- * boundary ring around it (each biome's look is provided by the subclass),
- * and a boundary wall further out so the fight can't wander away.
+ * BossStage — shared skeleton for the fixed biome boss arenas. Every arena is
+ * the same shape on purpose: a large, open, obstacle-free circular combat disc,
+ * a decorative boundary ring (each biome's look from the subclass), and a
+ * boundary wall further out so the fight can't wander away.
  */
 public abstract class BossStage implements Stage {
 
-    /** outer wall / ground half-extent */
     private static final float HALF_EXTENT = 55f;
-    /** radius of the clear, obstacle-free central combat disc */
     private static final float ARENA_RADIUS = 36f;
     /** where the enclosing decor ring starts (just outside the combat disc) */
     private static final float RING_START = ARENA_RADIUS + 3f;
@@ -61,12 +57,20 @@ public abstract class BossStage implements Stage {
     public List<EnemyController> spawnEnemies(AssetManager assetManager, Node parentNode,
                                                BulletAppState bulletAppState, int loopCount) {
         List<EnemyController> enemies = new ArrayList<>();
-        // the one and only boss, standing mid-arena as the fight begins
         EnemyController boss = new EnemyController(
                 assetManager, stageNode, bulletAppState,
-                BOSS_SPAWN_POS, 9, loopCount, getBossScale(), true);
+                BOSS_SPAWN_POS, 9, loopCount, getBossScale(), true, getBossModelPath());
         enemies.add(boss);
         return enemies;
+    }
+
+    /**
+     * Character model this biome's boss is rendered with. Returning null falls
+     * back to the placeholder capsule (not abstract so the shared arena still
+     * compiles if a subclass forgets to override).
+     */
+    protected String getBossModelPath() {
+        return null;
     }
 
     @Override
@@ -74,10 +78,6 @@ public abstract class BossStage implements Stage {
         return new Vector3f(0f, 2f, 0f);
     }
 
-    /**
-     * Playfield: a big flat square ground collider with a visible circular
-     * "battle ring" disc marking exactly where the boss fight happens.
-     */
     private void buildArenaFloor(AssetManager assetManager, BulletAppState bulletAppState) {
         Box groundBox = new Box(HALF_EXTENT, 0.5f, HALF_EXTENT);
         Geometry ground = new Geometry(getName() + "Ground", groundBox);
@@ -95,7 +95,7 @@ public abstract class BossStage implements Stage {
         discMat.setColor("Color", getArenaColor());
         discMat.getAdditionalRenderState().setFaceCullMode(com.jme3.material.RenderState.FaceCullMode.Off);
         arenaDisc.setMaterial(discMat);
-        arenaDisc.rotate(FastMath.HALF_PI, 0f, 0f); // lay the cylinder flat
+        arenaDisc.rotate(FastMath.HALF_PI, 0f, 0f);
         arenaDisc.setLocalTranslation(0f, 0.05f, 0f);
         stageNode.attachChild(arenaDisc);
 
@@ -128,7 +128,6 @@ public abstract class BossStage implements Stage {
         physicsObjects.add(physics);
     }
 
-    /** Enclosure radius the decor ring is drawn at (subclasses use this). */
     protected float getRingStart() {
         return RING_START;
     }
@@ -137,19 +136,13 @@ public abstract class BossStage implements Stage {
         return HALF_EXTENT - 2f;
     }
 
-    // ---- subclass hooks ----
-
-    /** Draw the biome-specific surroundings (tree ring, lava rocks, etc.). */
     protected abstract void buildArenaDecor(AssetManager assetManager, BulletAppState bulletAppState);
 
-    /** Extra difficulty multiplier for this biome's boss (made straighter late-game). */
     protected float getBossScale() {
         return 1f;
     }
 
-    /** Per-biome ground hue. */
     protected abstract ColorRGBA getGroundColor();
 
-    /** Per-biome arena disc tint (kept subtle so it doesn't shout). */
     protected abstract ColorRGBA getArenaColor();
 }

@@ -13,17 +13,13 @@ import com.jme3.scene.shape.Box;
 
 import java.util.Random;
 
-/**
- * Frost Giant Boss Arena — a frozen caldera ringed by towering ice peaks and
- * icebergs. The center is a smooth open disc for the Giant to stomp around in.
- */
+/** Frost Giant Boss Arena — a frozen caldera ringed by ice peaks; open disc at the centre. */
 public class FrostGiantBossStage extends BossStage {
 
     @Override
     protected void buildArenaDecor(AssetManager assetManager, BulletAppState bulletAppState) {
         Random rand = new Random(773);
 
-        // jagged ice-peak ring around the open combat area
         for (int i = 0; i < 22; i++) {
             float angle = (i / 22f) * FastMath.TWO_PI + rand.nextFloat() * 0.2f;
             float radius = getRingStart() + rand.nextFloat() * (getRingEnd() - getRingStart());
@@ -50,7 +46,6 @@ public class FrostGiantBossStage extends BossStage {
             physicsObjects.add(physics);
         }
 
-        // snow mounds add floor texture without crowding the arena
         for (int i = 0; i < 18; i++) {
             float angle = (i / 18f) * FastMath.TWO_PI + rand.nextFloat() * 0.2f;
             float radius = getRingStart() + 1f + rand.nextFloat() * (getRingEnd() - getRingStart() - 1f);
@@ -70,6 +65,11 @@ public class FrostGiantBossStage extends BossStage {
     @Override
     protected float getBossScale() {
         return 1.3f;
+    }
+
+    @Override
+    protected String getBossModelPath() {
+        return "Models/Characters/boss/frost_giant.gltf";
     }
 
     @Override

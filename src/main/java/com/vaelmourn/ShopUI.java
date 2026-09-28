@@ -22,10 +22,7 @@ import com.jme3.scene.shape.Quad;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Shop GUI for buying items from NPCs using soul dust currency.
- * Displays a list of items with prices and allows the player to purchase them.
- */
+
 public class ShopUI implements ActionListener, NPC.ShopUI {
 
     private Node shopNode;
@@ -62,7 +59,6 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
         font = assetManager.loadFont("Interface/Fonts/Default.fnt");
         shopNode = new Node("ShopUI");
 
-        // Hook up the shop's input bindings.
         inputManager.addMapping("ShopUp", new KeyTrigger(KeyInput.KEY_W), new KeyTrigger(KeyInput.KEY_UP));
         inputManager.addMapping("ShopDown", new KeyTrigger(KeyInput.KEY_S), new KeyTrigger(KeyInput.KEY_DOWN));
         inputManager.addMapping("ShopBuy", new KeyTrigger(KeyInput.KEY_RETURN), new MouseButtonTrigger(MouseInput.BUTTON_LEFT));
@@ -80,7 +76,6 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
         displayedItems.clear();
         selectedIndex = 0;
 
-        // Pull the sellable items out of this NPC's shop stock.
         for (int i = 0; i < npc.getShopItems().size(); i++) {
             String itemId = npc.getShopItems().get(i);
             int price = npc.getShopPrices().get(i);
@@ -101,7 +96,6 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
         float startX = padding;
         float startY = camera.getHeight() - padding;
 
-        // Title
         BitmapText title = new BitmapText(font, false);
         title.setSize(24f * uiScale);
         title.setColor(ColorRGBA.Yellow);
@@ -111,7 +105,6 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
 
         startY -= 50f * uiScale;
 
-        // Soul dust display
         BitmapText soulDustText = new BitmapText(font, false);
         soulDustText.setSize(16f * uiScale);
         soulDustText.setColor(new ColorRGBA(1f, 0.8f, 0f, 1f));
@@ -121,7 +114,6 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
 
         startY -= 40f * uiScale;
 
-        // Item list
         for (int i = 0; i < displayedItems.size() && i < 8; i++) {
             ShopItem item = displayedItems.get(i);
             float itemY = startY - (i * 35f * uiScale);
@@ -144,7 +136,6 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
             shopNode.attachChild(itemText);
         }
 
-        // Control hints shown under the list.
         startY -= (displayedItems.size() + 1) * 35f * uiScale + 20f * uiScale;
         BitmapText instructions = new BitmapText(font, false);
         instructions.setSize(12f * uiScale);
@@ -187,7 +178,6 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
             return;
         }
 
-        // Charge the player and hand over the item.
         playerStats.spendSoulDust(item.price);
         inventory.addItem(item.itemId, 1);
         System.out.println("Purchased " + item.name + " for " + item.price + " soul dust!");
@@ -212,9 +202,6 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
         return shopNode;
     }
 
-    /**
-     * Internal class to track shop item display info.
-     */
     private static class ShopItem {
         String itemId;
         String name;
@@ -231,7 +218,6 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
 
     @Override
     public void purchaseItem(String itemId, int count) {
-        // The NPC calls this whenever a purchase goes through
         // buySelectedItem() already handles everything
     }
 }

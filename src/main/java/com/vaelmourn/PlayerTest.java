@@ -61,11 +61,9 @@ public class PlayerTest extends SimpleApplication implements ActionListener {
     @Override
     public void simpleInitApp() {
 
-        // Physics setup
         bulletAppState = new BulletAppState();
         stateManager.attach(bulletAppState);
 
-        // --- FLOOR ---
         Box floorBox = new Box(50f, 0.5f, 50f);
         Geometry floor = new Geometry("Floor", floorBox);
         Material floorMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
@@ -80,7 +78,6 @@ public class PlayerTest extends SimpleApplication implements ActionListener {
         rootNode.attachChild(floor);
         bulletAppState.getPhysicsSpace().add(floorPhysics);
 
-        // --- LIGHTING ---
         DirectionalLight sun = new DirectionalLight();
         sun.setDirection(new Vector3f(-0.5f, -1f, -0.5f).normalizeLocal());
         rootNode.addLight(sun);
@@ -95,7 +92,6 @@ public class PlayerTest extends SimpleApplication implements ActionListener {
         playerNode.attachChild(playerModel);
         rootNode.attachChild(playerNode);
 
-        // --- PLAYER PHYSICS ---
         playerControl = new BetterCharacterControl(0.5f, 1.8f, 1f);
         playerControl.setJumpForce(new Vector3f(0, 8f, 0));
         playerControl.setGravity(new Vector3f(0, -30f, 0));
@@ -107,7 +103,6 @@ public class PlayerTest extends SimpleApplication implements ActionListener {
 
         playerControl.warp(new Vector3f(0, 5f, 0));
 
-        // --- ANIMATION SETUP ---
         animComposer = findAnimComposer(playerModel);
         if (animComposer != null) {
             System.out.println("Available animations: " + animComposer.getAnimClipsNames());
@@ -116,10 +111,8 @@ public class PlayerTest extends SimpleApplication implements ActionListener {
             System.out.println("No AnimComposer found on this model.");
         }
 
-        // --- INPUT ---
         initKeys();
 
-        // --- CAMERA ---
         flyCam.setEnabled(false);
         inputManager.setCursorVisible(false);
 

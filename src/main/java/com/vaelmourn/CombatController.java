@@ -31,11 +31,9 @@ public class CombatController {
 
     private float defaultFov = 45f;
     private float targetFov = 45f;
-    // velocity-based FOV swell supplied by the movement system each frame;
-    // adds on top of targetFov so ADS zoom and speed feedback compose
+    // velocity FOV swell from the movement system; composes on top of targetFov
     private float speedFovBoost = 0f;
 
-    // how much camera kick each attack carries when it connects
     private static final float MELEE_LIGHT_HIT_SHAKE = 0.05f;
     private static final float MELEE_HEAVY_HIT_SHAKE = 0.10f;
     private static final float RANGED_HIT_SHAKE = 0.08f;
@@ -62,8 +60,7 @@ public class CombatController {
         blockHeld = false;
         heavyCharging = false;
         heavyChargeTime = 0f;
-        // push the weapon's own stats through so the stat bar / buff math
-        // works off the real, currently readied weapon
+        // push the weapon's own stats through so stat/buff math uses the real weapon
         if (playerStats != null && equipped != null) {
             playerStats.setBaseWeaponDamage(equipped.def.damage);
             playerStats.setBaseAttackSpeed(equipped.def.attackSpeed);
@@ -82,15 +79,11 @@ public class CombatController {
         return equipped;
     }
 
-    /** Hook in the combat feel stuff (damage numbers, shake, sounds). */
     public void setEffects(CombatEffects effects) {
         this.effects = effects;
     }
 
-    /**
-     * What fraction of the cooldown is still pending (1.0 = just swung, 0.0 = ready).
-     * The HUD mirrors this on its attack cooldown bar.
-     */
+    /** Fraction of the cooldown still pending (1.0 = just swung, 0.0 = ready); the HUD mirrors it. */
     public float getCooldownFraction() {
         if (equipped == null) return 0f;
         float mult = playerStats != null ? playerStats.getAttackSpeedMultiplier() : 1f;
@@ -98,7 +91,6 @@ public class CombatController {
         return FastMath.clamp(total <= 0f ? 0f : equipped.cooldown / total, 0f, 1f);
     }
 
-    /** Feed the currently active enemy list in so attacks can hit them. */
     public void setEnemies(List<EnemyController> enemies) {
         this.enemies.clear();
         if (enemies != null) this.enemies.addAll(enemies);
@@ -190,21 +182,16 @@ public class CombatController {
             parryTimer -= tpf;
         }
 
-        // Ease the FOV toward the ADS zoom value (movement's speed swell rides on top)
         float currentFov = cam.getFov();
         float lerp = FastMath.clamp(tpf * 10f, 0f, 1f);
         cam.setFov(FastMath.interpolateLinear(lerp, currentFov, targetFov + speedFovBoost));
     }
 
-    /** Velocity-based FOV swell driven by the movement system (0 when cruising). */
     public void setSpeedFovBoost(float boost) {
         this.speedFovBoost = boost;
     }
 
-    // ---------------- the actual attacks ----------------
-
     private void doMeleeLight() {
-        // Sweep a cone in front of the player — arc across, weapon range deep.
         applyMeleeArc(finalizeDamage(equipped.def.damage), equipped.def.range, 90f, MELEE_LIGHT_HIT_SHAKE);
         playAnimSafe("Attack_Light");
         notifySwing(false);
@@ -252,7 +239,6 @@ public class CombatController {
     }
 
     private void doShieldPush() {
-        // Short-range push that knocks anything in front of the player back.
         Vector3f forward = cam.getDirection().normalizeLocal();
         for (EnemyController e : enemies) {
             if (e.isDead()) continue;
@@ -271,7 +257,6 @@ public class CombatController {
         triggerCooldown();
     }
 
-    /** Damages every living enemy inside a horizontal cone (arcDeg wide, reach deep). */
     private void applyMeleeArc(float damage, float reach, float arcDeg, float shakeAmp) {
         if (enemies.isEmpty()) return;
         Vector3f origin = playerNode.getWorldTranslation();
@@ -288,19 +273,17 @@ public class CombatController {
             float dot = FastMath.clamp(dir.dot(n), -1f, 1f);
             if (FastMath.acos(dot) <= arcHalf) {
                 e.takeDamage(damage);
-                // heavy blades shove harder; light blades barely push
                 e.applyKnockback(n, equipped.def.meleeKnockback);
                 if (effects != null) effects.onEnemyHit(e, damage, e.isDead(), shakeAmp);
             }
         }
     }
 
-    /** Applies strength potion + crit roll to a base weapon hit. */
+    /** Strength potion + crit roll applied to a base weapon hit. */
     private float finalizeDamage(float baseDamage) {
         return playerStats != null ? playerStats.rollFinalDamage(baseDamage) : baseDamage;
     }
 
-    /** Starts the swing cooldown, scaled by any active attack-speed buff. */
     private void triggerCooldown() {
         equipped.triggerCooldown(playerStats != null ? playerStats.getAttackSpeedMultiplier() : 1f);
     }

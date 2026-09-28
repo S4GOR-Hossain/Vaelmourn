@@ -17,11 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-/**
- * AshenWastesStage — Stage 2: Volcanic desert with tier-2 enemies.
- * Variants 1-4 scale difficulty; variant 3 is the ENEMY HORDE stage — a flood
- * of individually weaker enemies instead of a handful of strong ones.
- */
+/** AshenWastesStage — Stage 2: volcanic desert, tier-2 enemies; variant 3 is the horde stage. */
 public class AshenWastesStage implements Stage {
 
     private static final float HALF_EXTENT = 55f;
@@ -29,6 +25,10 @@ public class AshenWastesStage implements Stage {
     private static final int HORDE_ENEMY_COUNT = 22;
     // horde fodder hits far softer than the surrounding stages' regular troops
     private static final float HORDE_DIFFICULTY_SCALE = 0.55f;
+    private static final String[] ENEMY_MODELS = {
+            "Models/Characters/enemy/ashenwastes_enemy.gltf",
+            "Models/Characters/enemy/ashenwastes_enemy2.gltf"
+    };
 
     private final int variant;
     private Node stageNode;
@@ -77,9 +77,10 @@ public class AshenWastesStage implements Stage {
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
 
+            String modelPath = ENEMY_MODELS[(variant + i) % ENEMY_MODELS.length];
             EnemyController enemy = new EnemyController(
                 assetManager, stageNode, bulletAppState,
-                new Vector3f(x, 5f, z), 2, loopCount, scale
+                new Vector3f(x, 5f, z), 2, loopCount, scale, false, modelPath
             );
             enemies.add(enemy);
         }
@@ -94,7 +95,7 @@ public class AshenWastesStage implements Stage {
 
     @Override
     public ColorRGBA getSkyColor() {
-        return new ColorRGBA(0.6f, 0.35f, 0.15f, 1f); // orange-red haze from the burn-off
+        return new ColorRGBA(0.6f, 0.35f, 0.15f, 1f);
     }
 
     @Override
@@ -104,7 +105,7 @@ public class AshenWastesStage implements Stage {
 
     @Override
     public Vector3f getSunDirection() {
-        return new Vector3f(-0.2f, -1f, -0.1f).normalizeLocal(); // almost straight overhead, harsh shadows
+        return new Vector3f(-0.2f, -1f, -0.1f).normalizeLocal();
     }
 
     @Override
@@ -126,7 +127,7 @@ public class AshenWastesStage implements Stage {
         Box groundBox = new Box(HALF_EXTENT, 0.5f, HALF_EXTENT);
         Geometry ground = new Geometry("AshenWastesGround", groundBox);
         Material mat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-        mat.setColor("Color", new ColorRGBA(0.45f, 0.30f, 0.18f, 1f)); // orange-brown scorched dirt
+        mat.setColor("Color", new ColorRGBA(0.45f, 0.30f, 0.18f, 1f));
         ground.setMaterial(mat);
         ground.setLocalTranslation(0, -0.5f, 0);
         stageNode.attachChild(ground);
@@ -161,10 +162,8 @@ public class AshenWastesStage implements Stage {
     }
 
     private void buildDecoration(AssetManager assetManager, BulletAppState bulletAppState) {
-        // variant re-seeds layout so each pass through the wastes shifts slightly
         Random rand = new Random(100 + variant);
 
-        // Lava pools dotted across the field
         for (int i = 0; i < 12; i++) {
             float x = (rand.nextFloat() - 0.5f) * 90f;
             float z = (rand.nextFloat() - 0.5f) * 90f;
@@ -178,8 +177,7 @@ public class AshenWastesStage implements Stage {
             stageNode.attachChild(lava);
         }
 
-        // Use the Forest pack's real stone models as rocky outcrops instead of
-        // boxy "pillars". No trees here — this biome is barren.
+        // Forest pack stone models reused as rocky outcrops — no trees, this biome is barren.
         String[] stoneModels = {
                 "Models/Environment/Forest/stone_tallA.glb",
                 "Models/Environment/Forest/stone_tallB.glb",
@@ -211,8 +209,7 @@ public class AshenWastesStage implements Stage {
 
         stageNode.attachChild(stone);
 
-        // Rough box collider matching each rock's footprint so the player
-        // can't just walk straight through the outcrops.
+        // Rough box collider so the player can't walk straight through the outcrops.
         BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(size * 0.35f, size * 0.4f, size * 0.35f));
         RigidBodyControl physics = new RigidBodyControl(shape, 0);
         physics.setPhysicsLocation(new Vector3f(x, size * 0.35f, z));

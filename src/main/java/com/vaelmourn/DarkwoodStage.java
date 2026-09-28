@@ -20,14 +20,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-/**
- * DarkwoodStage — Stage 1: Dark forest with tier-1 enemies.
- * Variants 1-4 scale enemy difficulty and re-seed the tree layout slightly,
- * so later stages feel like the same woods that have gotten meaner.
- */
+/** Darkwood — stage 1, tier-1 forest. Variants 1-4 raise difficulty and re-seed the trees. */
 public class DarkwoodStage implements Stage {
 
     private static final float HALF_EXTENT = 60f;
+    // rotated per stage so each pass through the woods leads with a different grunt
+    private static final String[] ENEMY_MODELS = {
+            "Models/Characters/enemy/darkwood_enemy.glb",
+            "Models/Characters/enemy/darkwood_enemy2.glb",
+            "Models/Characters/enemy/darkwood_enemy3.gltf"
+    };
 
     private final int variant;
     private Node stageNode;
@@ -65,7 +67,6 @@ public class DarkwoodStage implements Stage {
                                                BulletAppState bulletAppState, int loopCount) {
         List<EnemyController> enemies = new ArrayList<>();
 
-        // difficulty curve inside the biome: more of them, and they hit harder
         int enemyCount = 4 + variant + (loopCount / 2);
         int tier = Math.min(3, 1 + (variant - 1) / 2);
         float scale = 1f + (variant - 1) * 0.35f;
@@ -77,9 +78,10 @@ public class DarkwoodStage implements Stage {
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
 
+            String modelPath = ENEMY_MODELS[(variant + i) % ENEMY_MODELS.length];
             EnemyController enemy = new EnemyController(
                 assetManager, stageNode, bulletAppState,
-                new Vector3f(x, 5f, z), tier, loopCount, scale
+                new Vector3f(x, 5f, z), tier, loopCount, scale, false, modelPath
             );
             enemies.add(enemy);
         }
@@ -126,7 +128,7 @@ public class DarkwoodStage implements Stage {
         Box groundBox = new Box(HALF_EXTENT, 0.5f, HALF_EXTENT);
         Geometry ground = new Geometry("DarkwoodGround", groundBox);
         Material mat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-        mat.setColor("Color", new ColorRGBA(0.2f, 0.3f, 0.15f, 1f)); // dark mossy green
+        mat.setColor("Color", new ColorRGBA(0.2f, 0.3f, 0.15f, 1f));
         ground.setMaterial(mat);
         ground.setLocalTranslation(0, -0.5f, 0);
         stageNode.attachChild(ground);
@@ -160,13 +162,9 @@ public class DarkwoodStage implements Stage {
     }
 
     private void buildDecoration(AssetManager assetManager, BulletAppState bulletAppState) {
-        // the variant re-seeds the layout so each stage is the same woods with a
-        // slightly different tree arrangement (the "slight variation" between stages)
+        // the variant re-seeds the layout so each stage is the same woods, rearranged
         Random rand = new Random(99 + variant);
 
-        // Dark forest: only pull from a handful of tree-pack models (3-4 types,
-        // repeated randomly) so no single tree stands out. They carry their own
-        // colormaps, and the dark ambient light does the rest for the vibe.
         String[] treeModels = {
                 "Models/Environment/Forest/tree_pack_02.glb",
                 "Models/Environment/Forest/tree_pack_07.glb",
@@ -198,29 +196,29 @@ public class DarkwoodStage implements Stage {
         float scale = (3.5f + rand.nextFloat() * 1.2f) * 0.8f;
         tree.setLocalScale(scale);
 
-        // Pack models pivot around their vertical center, so lift each tree until
-        // its base touches the ground instead of half-burying it. Grab the scaled
-        // bounds too — they drive the hitbox size below.
+        // Pack models pivot around their vertical center, so lift each until its
+        // base touches the ground instead of half-burying it.
         tree.updateModelBound();
-        Vector3f extent = new Vector3f();
+        float trunkRadius = 1.1f;
+        float collarHeight = 4f;
         float lift = 0f;
         if (tree.getWorldBound() instanceof BoundingBox bbox) {
+            Vector3f extent = new Vector3f();
+            Vector3f center = new Vector3f();
             bbox.getExtent(extent);
-            lift = extent.y - bbox.getCenter().y;
+            bbox.getCenter(center);
+            lift = extent.y - center.y;
+            // the old 0.2x hitbox was a tiny post you could walk around,
+            // so size the collision from the tree silhouette instead
+            trunkRadius = FastMath.clamp(Math.max(extent.x, extent.z) * 0.75f, 1.0f, 2.8f);
+            collarHeight = FastMath.clamp(2f * extent.y, 4f, 9f);
         }
 
         tree.setLocalTranslation(x, lift, z);
 
-        // Trunk hitbox: a narrow box as wide as the trunk, spanning the lower part of
-        // the tree where the trunk actually sits. Sizes come from the scaled bounds
-        // so it stays proportional to whichever model got picked.
-        float trunkRadius = Math.max(0.5f, Math.min(1.3f, Math.max(extent.x, extent.z) * 0.2f));
-        float treeHeight = 2f * extent.y;
-        float collarHeight = Math.max(2.5f, treeHeight * 0.4f);
         BoxCollisionShape trunkShape = new BoxCollisionShape(new Vector3f(trunkRadius, collarHeight / 2f, trunkRadius));
         RigidBodyControl physics = new RigidBodyControl(trunkShape, 0);
-        float centerY = collarHeight / 2f;
-        physics.setPhysicsLocation(new Vector3f(x, centerY, z));
+        physics.setPhysicsLocation(new Vector3f(x, collarHeight / 2f, z));
 
         stageNode.attachChild(tree);
         bulletAppState.getPhysicsSpace().add(physics);

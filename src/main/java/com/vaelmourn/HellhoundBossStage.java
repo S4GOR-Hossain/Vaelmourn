@@ -15,10 +15,7 @@ import com.jme3.scene.shape.Box;
 
 import java.util.Random;
 
-/**
- * Hellhound Boss Arena — a volcanic caldera. Lava pools and lava rocks ring a
- * big open central circle where the Hellhound roams and attacks.
- */
+/** Hellhound Boss Arena — a volcanic caldera of lava pools and rocks around an open circle. */
 public class HellhoundBossStage extends BossStage {
 
     private static final String[] STONE_MODELS = {
@@ -35,7 +32,6 @@ public class HellhoundBossStage extends BossStage {
     protected void buildArenaDecor(AssetManager assetManager, BulletAppState bulletAppState) {
         Random rand = new Random(772);
 
-        // jumbled lava ring hugging the outside of the combat disc
         for (int i = 0; i < 22; i++) {
             float angle = (i / 22f) * FastMath.TWO_PI + rand.nextFloat() * 0.2f;
             float radius = getRingStart() + 1f + rand.nextFloat() * (getRingEnd() - getRingStart() - 1f);
@@ -52,7 +48,6 @@ public class HellhoundBossStage extends BossStage {
             stageNode.attachChild(lava);
         }
 
-        // scorched rock outcrops seal the ring between the pools
         for (int i = 0; i < 18; i++) {
             float angle = (i / 18f) * FastMath.TWO_PI + rand.nextFloat() * 0.15f;
             float radius = getRingStart() + 2f + rand.nextFloat() * (getRingEnd() - getRingStart() - 2f);
@@ -78,6 +73,11 @@ public class HellhoundBossStage extends BossStage {
     @Override
     protected float getBossScale() {
         return 1.15f;
+    }
+
+    @Override
+    protected String getBossModelPath() {
+        return "Models/Characters/boss/hell_hound.gltf";
     }
 
     @Override

@@ -8,10 +8,7 @@ import com.jme3.math.Vector3f;
 
 import java.util.Random;
 
-/**
- * Beekeeper Boss Arena — a jungle clearing walled in by trees. The center is a
- * big open circle for the Beekeeper's swarm fight.
- */
+/** Beekeeper Boss Arena — a jungle clearing walled in by trees around a big open centre. */
 public class BeekeeperBossStage extends BossStage {
 
     private static final String[] TREE_MODELS = {
@@ -38,6 +35,11 @@ public class BeekeeperBossStage extends BossStage {
     @Override
     protected float getBossScale() {
         return 1.15f;
+    }
+
+    @Override
+    protected String getBossModelPath() {
+        return "Models/Characters/boss/bee_keeper.gltf";
     }
 
     @Override

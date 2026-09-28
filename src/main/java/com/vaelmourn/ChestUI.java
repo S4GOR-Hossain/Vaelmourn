@@ -56,7 +56,6 @@ public class ChestUI implements ActionListener, Chest.ChestUI {
         font = assetManager.loadFont("Interface/Fonts/Default.fnt");
         chestNode = new Node("ChestUI");
 
-        // Hook up the chest's input bindings.
         inputManager.addMapping("ChestUp", new KeyTrigger(KeyInput.KEY_W), new KeyTrigger(KeyInput.KEY_UP));
         inputManager.addMapping("ChestDown", new KeyTrigger(KeyInput.KEY_S), new KeyTrigger(KeyInput.KEY_DOWN));
         inputManager.addMapping("ChestLoot", new KeyTrigger(KeyInput.KEY_RETURN), new MouseButtonTrigger(MouseInput.BUTTON_LEFT));
@@ -73,7 +72,6 @@ public class ChestUI implements ActionListener, Chest.ChestUI {
         displayedItems.clear();
         selectedIndex = 0;
 
-        // Resolve the chest contents into rows we can show.
         for (int i = 0; i < itemIds.size(); i++) {
             String itemId = itemIds.get(i);
             int count = counts.get(i);
@@ -94,7 +92,6 @@ public class ChestUI implements ActionListener, Chest.ChestUI {
         float startX = padding;
         float startY = camera.getHeight() - padding;
 
-        // Title
         BitmapText title = new BitmapText(font, false);
         title.setSize(24f * uiScale);
         title.setColor(ColorRGBA.Yellow);
@@ -104,7 +101,6 @@ public class ChestUI implements ActionListener, Chest.ChestUI {
 
         startY -= 50f * uiScale;
 
-        // Item list
         for (int i = 0; i < displayedItems.size() && i < 10; i++) {
             ChestItem item = displayedItems.get(i);
             float itemY = startY - (i * 35f * uiScale);
@@ -127,7 +123,6 @@ public class ChestUI implements ActionListener, Chest.ChestUI {
             chestNode.attachChild(itemText);
         }
 
-        // Control hints shown under the list.
         startY -= (displayedItems.size() + 1) * 35f * uiScale + 20f * uiScale;
         BitmapText instructions = new BitmapText(font, false);
         instructions.setSize(12f * uiScale);
@@ -166,11 +161,9 @@ public class ChestUI implements ActionListener, Chest.ChestUI {
 
         ChestItem item = displayedItems.get(selectedIndex);
 
-        // Drop the item(s) into the player's inventory.
         inventory.addItem(item.itemId, item.count);
         System.out.println("Looted " + item.count + "x " + item.name);
 
-        // Take it off the chest list.
         displayedItems.remove(selectedIndex);
         if (displayedItems.isEmpty()) {
             closeChest();
@@ -196,9 +189,6 @@ public class ChestUI implements ActionListener, Chest.ChestUI {
         return chestNode;
     }
 
-    /**
-     * Internal class to track chest item display info.
-     */
     private static class ChestItem {
         String itemId;
         String name;

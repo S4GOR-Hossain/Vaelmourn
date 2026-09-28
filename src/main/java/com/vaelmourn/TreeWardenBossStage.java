@@ -8,11 +8,7 @@ import com.jme3.math.Vector3f;
 
 import java.util.Random;
 
-/**
- * Tree Warden Boss Arena — a clearing walled in by an enclosing ring of great
- * trees. The middle stays a big open disc so the Warden has room to move and
- * attack; the trees just define the edges.
- */
+/** Tree Warden Boss Arena — a clearing ringed by great trees, open disc in the middle. */
 public class TreeWardenBossStage extends BossStage {
 
     private static final String[] TREE_MODELS = {
@@ -38,6 +34,11 @@ public class TreeWardenBossStage extends BossStage {
     @Override
     protected float getBossScale() {
         return 1.05f;
+    }
+
+    @Override
+    protected String getBossModelPath() {
+        return "Models/Characters/boss/tree_warden.gltf";
     }
 
     @Override

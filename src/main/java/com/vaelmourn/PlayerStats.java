@@ -5,13 +5,8 @@ import com.jme3.math.FastMath;
 import java.util.Random;
 
 /**
- * Tracks the player's core RPG statistics: health, mana, experience,
- * level, the soul dust currency, and the base/effective combat stats.
- *
- * Equipment and potions feed in through clean seams:
- *   - equipped armor/legs bonuses are summed from the Inventory every read
- *     (idempotent — nothing stacks across frames),
- *   - potion buffs are timed multipliers that expire back to base values.
+ * Equipment bonuses are re-summed from the Inventory on every read (idempotent,
+ * nothing stacks across frames); potion buffs are timed multipliers that expire.
  */
 public class PlayerStats {
 
@@ -24,42 +19,37 @@ public class PlayerStats {
 
     private String playerName = "Vael";
 
-    // health pool
     private float maxHealth = 100f;
     private float health = maxHealth;
 
-    // mana pool (kept for future abilities; no spells consume it yet)
+    // kept for future abilities; no spells consume it yet
     private float maxMana = 100f;
     private float mana = maxMana;
 
-    // xp and leveling
     private int level = 1;
     private float experience = 0f;
     private float experienceToNext = 100f;
 
-    // currency
     private int soulDust = 0;
 
-    // ---- base stats (the "unmodified" numbers gameplay starts from) ----
-    private float baseArmor = 10f;             // suite of starting gear baseline
-    private float baseMoveSpeed = 29f;         // fast run pace; potions/gear/slow layer on top
-    private float baseWeaponDamage = 8f;       // replaced by the equipped weapon
+    private float baseArmor = 10f;
+    private float baseMoveSpeed = 29f;
+    private float baseWeaponDamage = 8f;
     private float baseWeaponAttackSpeed = 1.2f;
 
     // crit curve lives here so it's one knob instead of many
     private static final float BASE_CRIT_CHANCE = 0.05f;
     private static final float CRIT_MULTIPLIER = 1.6f;
 
-    // ---- inventory hook: equipment bonuses are read live, never stacked ----
+    // equipment bonuses are read live, never stacked
     private Inventory inventory;
 
-    // ---- active potion buffs (time is drained in update()) ----
-    private float speedPower = 0f, speedTime = 0f, speedDuration = 0f;       // +move & +attack speed
-    private float strengthPower = 0f, strengthTime = 0f, strengthDuration = 0f; // +damage
-    private float critPower = 0f, critTime = 0f, critDuration = 0f;          // +crit chance
-    private float regenRate = 0f, regenTime = 0f, regenDuration = 0f, regenAccum = 0f; // heal over time
+    private float speedPower = 0f, speedTime = 0f, speedDuration = 0f;
+    private float strengthPower = 0f, strengthTime = 0f, strengthDuration = 0f;
+    private float critPower = 0f, critTime = 0f, critDuration = 0f;
+    private float regenRate = 0f, regenTime = 0f, regenDuration = 0f, regenAccum = 0f;
 
-    // ---- stage debuff: slow (Frozen Depths 3 slaps this on the player) ----
+    // stage debuff: slow (Frozen Depths 3 slaps this on the player)
     private float slowPower = 0f, slowTime = 0f;
 
     private final Random random = new Random();
@@ -76,8 +66,6 @@ public class PlayerStats {
     public int getSoulDust() { return soulDust; }
     public String getPlayerName() { return playerName; }
 
-    // ---- effective stats (equipment + potions folded in) ----
-
     /** Armor point total; raises the flat damage-reduction curve (100/(100+armor)). */
     public float getArmorPoints() {
         return baseArmor + defenseFromEquipment();
@@ -88,21 +76,16 @@ public class PlayerStats {
         return (baseMoveSpeed + moveSpeedFromEquipment()) * (1f + speedPower) * getSlowMultiplier();
     }
 
-    /** 1.0 when normal, below 1.0 while a stage slow debuff is active. */
     public float getSlowMultiplier() {
         return slowTime > 0f ? Math.max(0.35f, 1f - slowPower) : 1f;
     }
 
-    /**
-     * Applies the Frozen Depths "enemy hit slows you" effect. Refreshes the
-     * duration but never grows the magnitude, so it can't be stacked infinitely.
-     */
+    /** Frozen Depths "enemy hit slows you": refreshes duration, never grows magnitude, so it can't stack. */
     public void applySlow(float magnitude, float duration) {
         slowPower = Math.max(slowPower, magnitude);
         slowTime = Math.max(slowTime, duration);
     }
 
-    /** What the currently readied weapon swings per second, buffs included. */
     public float getAttackSpeed() {
         return baseWeaponAttackSpeed * getAttackSpeedMultiplier();
     }
@@ -126,8 +109,6 @@ public class PlayerStats {
     public float getAverageDamage() {
         return baseWeaponDamage * getDamageMultiplier();
     }
-
-    // ================= setters / wiring =================
 
     public void setPlayerName(String playerName) {
         this.playerName = playerName == null || playerName.isEmpty() ? "Player" : playerName;
@@ -158,6 +139,33 @@ public class PlayerStats {
         this.baseMoveSpeed = Math.max(0f, movementSpeed);
     }
 
+    /** Back to a freshly-started run's values; callers re-grant the starter loadout.
+     *  Wiring (inventory ref, damage listener) is left untouched so in-place reset
+     *  is safe for every holder of this instance. */
+    public void resetToDefaults() {
+        maxHealth = 100f;
+        health = maxHealth;
+        maxMana = 100f;
+        mana = maxMana;
+
+        level = 1;
+        experience = 0f;
+        experienceToNext = 100f;
+
+        soulDust = 0;
+
+        baseArmor = 10f;
+        baseMoveSpeed = 29f;
+        baseWeaponDamage = 8f;
+        baseWeaponAttackSpeed = 1.2f;
+
+        speedPower = 0f; speedTime = 0f; speedDuration = 0f;
+        strengthPower = 0f; strengthTime = 0f; strengthDuration = 0f;
+        critPower = 0f; critTime = 0f; critDuration = 0f;
+        regenRate = 0f; regenTime = 0f; regenDuration = 0f; regenAccum = 0f;
+        slowPower = 0f; slowTime = 0f;
+    }
+
     public void setHealth(float health) {
         this.health = Math.max(0f, Math.min(maxHealth, health));
     }
@@ -165,8 +173,6 @@ public class PlayerStats {
     public void setMana(float mana) {
         this.mana = Math.max(0f, Math.min(maxMana, mana));
     }
-
-    // ================= incoming damage =================
 
     public void damage(float amount) {
         if (amount <= 0f) return;
@@ -183,13 +189,7 @@ public class PlayerStats {
         setHealth(health + amount);
     }
 
-    // ================= consumables =================
-
-    /**
-     * Applies a consumable's effect. Returns true if the item was actually
-     * consumed (effects any non-NONE consumable), false for keys/materials
-     * and anything with no effect.
-     */
+    /** True if the item was actually consumed (any non-NONE effect), false for keys/materials. */
     public boolean consume(Item item) {
         if (item == null) return false;
         switch (item.effect) {
@@ -222,10 +222,7 @@ public class PlayerStats {
         }
     }
 
-    /**
-     * Rolls a hit for its final damage: strength potion multiplier first, then
-     * a crit check (if it procs the multiplier replaces that hit's value).
-     */
+    /** Strength multiplier first, then a crit check (if it procs it replaces that hit's value). */
     public float rollFinalDamage(float baseDamage) {
         float dmg = baseDamage * getDamageMultiplier();
         if (random.nextFloat() < getCritChance()) {
@@ -266,12 +263,9 @@ public class PlayerStats {
         }
     }
 
-    // ---- potion buff state for the HUD timers & player effect particles ----
-
     /** The four timed potion buffs, in a fixed display order. */
     public enum Buff { SPEED, STRENGTH, CRIT, REGEN }
 
-    /** How many seconds are left (0 when not active). */
     public float buffRemaining(Buff b) {
         return switch (b) {
             case SPEED -> speedTime;
@@ -281,7 +275,6 @@ public class PlayerStats {
         };
     }
 
-    /** Seconds the buff started with (0 when no buff data). */
     public float buffDuration(Buff b) {
         return switch (b) {
             case SPEED -> speedDuration;
@@ -291,14 +284,12 @@ public class PlayerStats {
         };
     }
 
-    /** 0..1 of the timer still left (0 when inactive). */
     public float buffFraction(Buff b) {
         float dur = buffDuration(b);
         if (dur <= 0f) return 0f;
         return FastMath.clamp(buffRemaining(b) / dur, 0f, 1f);
     }
 
-    /** Short label of every active buff, for the HUD ("SPD 18s  STR 12s"). */
     public String getActiveBuffSummary() {
         StringBuilder sb = new StringBuilder();
         if (speedTime > 0f) {
@@ -316,8 +307,6 @@ public class PlayerStats {
         return sb.toString().trim();
     }
 
-    // ================= equipment =================
-
     /** Sums defense bonuses from the four armor slots (idempotent read). */
     private float defenseFromEquipment() {
         if (inventory == null) return 0f;
@@ -330,7 +319,6 @@ public class PlayerStats {
         return total;
     }
 
-    /** Sums movement bonuses from leggings/boots (idempotent read). */
     private float moveSpeedFromEquipment() {
         if (inventory == null) return 0f;
         float total = 0f;
@@ -341,8 +329,6 @@ public class PlayerStats {
         }
         return total;
     }
-
-    // ================= misc =================
 
     public float getHealthFraction() {
         return maxHealth <= 0f ? 0f : health / maxHealth;
@@ -356,7 +342,6 @@ public class PlayerStats {
         return experienceToNext <= 0f ? 0f : experience / experienceToNext;
     }
 
-    /** Adds experience; levels up (and resets the bar) as many times as needed. */
     public void addExperience(float amount) {
         experience += amount;
         while (experience >= experienceToNext) {

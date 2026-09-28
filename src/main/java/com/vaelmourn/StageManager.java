@@ -15,9 +15,7 @@ import com.jme3.light.AmbientLight;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * StageManager orchestrates stage transitions, enemy spawning, and roguelike loop progression.
- */
+/** Orchestrates stage transitions, enemy spawning, and roguelike loop progression. */
 public class StageManager {
 
     private final List<Stage> stages = new ArrayList<>();
@@ -49,9 +47,6 @@ public class StageManager {
         stages.add(stage);
     }
 
-    /**
-     * Initialize the first stage (Sanctuary). Called from simpleInitApp().
-     */
     public void loadInitialStage(BetterCharacterControl playerControl) {
         if (stages.isEmpty()) {
             System.err.println("ERROR: No stages registered!");
@@ -79,23 +74,60 @@ public class StageManager {
             System.out.println("Spawned " + activeEnemies.size() + " enemies in " + currentStage.getName());
         }
 
-        // warp the player to their spawn point
         Vector3f spawnPoint = currentStage.getPlayerSpawnPoint();
         playerControl.warp(spawnPoint);
 
-        // light the stage back up
         updateLighting();
 
         System.out.println("Loaded initial stage: " + currentStage.getName());
     }
 
     /**
-     * Advance to the next stage. Called when player enters portal or via other triggers.
+     * Tear down whatever stage we're on and boot a completely fresh run: the very
+     * first stage (index 0, the Sanctuary) at loop 0 with base difficulty. No
+     * run-specific state (old enemies, portal, emitters, stage geometry) may leak
+     * over. Deliberately ignores -Dvaelmourn.startStage, which only applies at boot.
      */
+    public void resetToFirstStage(BetterCharacterControl playerControl) {
+        if (currentStage != null) {
+            currentStage.cleanup(rootNode, bulletAppState);
+        }
+        // detach leftover enemies and their effect nodes (emitters are scene
+        // nodes, not stage nodes) so nothing lingers into the fresh run
+        for (EnemyController enemy : activeEnemies) {
+            enemy.cleanup(bulletAppState);
+        }
+        activeEnemies.clear();
+        if (portalNode != null) {
+            portalNode.removeFromParent();
+            portalNode = null;
+            portalGeo = null;
+            portalPosition = null;
+        }
+
+        // fresh run: back to stage 0 at base difficulty
+        currentStageIndex = 0;
+        loopCount = 0;
+        difficultyScalar = 1.0f;
+
+        currentStage = stages.get(currentStageIndex);
+        currentStage.build(assetManager, rootNode, bulletAppState);
+
+        if (!currentStage.isSafe()) {
+            activeEnemies = currentStage.spawnEnemies(assetManager, rootNode, bulletAppState, loopCount);
+            System.out.println("Spawned " + activeEnemies.size() + " enemies in " + currentStage.getName());
+        }
+
+        Vector3f spawnPoint = currentStage.getPlayerSpawnPoint();
+        playerControl.warp(spawnPoint);
+
+        updateLighting();
+        System.out.println("Reset to fresh run at: " + currentStage.getName());
+    }
+
     public void advanceStage() {
         if (currentStage == null) return;
 
-        // tear down the stage we're leaving
         currentStage.cleanup(rootNode, bulletAppState);
         // detach leftover enemies and their effect nodes so nothing lingers
         // into the next biome (emitters are scene nodes, not stage nodes)
@@ -110,7 +142,6 @@ public class StageManager {
             portalPosition = null;
         }
 
-        // on to the next stage
         currentStageIndex++;
 
         // cleared every combat stage, so loop back and start the next run
@@ -124,7 +155,6 @@ public class StageManager {
         currentStage = stages.get(currentStageIndex);
         currentStage.build(assetManager, rootNode, bulletAppState);
 
-        // spawn this stage's enemies (safe hubs like the Sanctuary stay empty)
         if (!currentStage.isSafe()) {
             activeEnemies = currentStage.spawnEnemies(assetManager, rootNode, bulletAppState, loopCount);
             System.out.println("Spawned " + activeEnemies.size() + " enemies in " + currentStage.getName());
@@ -134,20 +164,16 @@ public class StageManager {
         System.out.println("Transitioned to: " + currentStage.getName());
     }
 
-    /**
-     * Update the stage each frame. Called from simpleUpdate().
-     */
     public void update(float tpf, Vector3f playerPos, BetterCharacterControl playerControl) {
         if (currentStage == null) return;
 
-        // tick every live enemy
         for (EnemyController enemy : activeEnemies) {
             enemy.update(tpf, playerPos, playerStats);
         }
 
-        // sweep out any enemies that croaked this frame — only once their
-        // death effect actually finished playing (canRemove), not the frame
-        // they died, or the death pop would never be seen
+        // sweep out any enemies that croaked this frame — only once their death
+        // effect actually finished playing (canRemove), or the death pop would
+        // never be seen
         activeEnemies.removeIf(e -> {
             if (e.canRemove()) {
                 e.cleanup(bulletAppState);
@@ -168,10 +194,8 @@ public class StageManager {
             spawnExitPortal(playerPos);
         }
 
-        // portal upkeep
         if (portalGeo != null) {
             // kept the portal non-rotating on purpose — a spinning door looks wrong
-
             // only care about X/Z distance here; it's a vertical doorway the
             // player walks through on the ground
             Vector3f horizontal = new Vector3f(
@@ -185,8 +209,8 @@ public class StageManager {
     private void spawnExitPortal(Vector3f playerPos) {
         if (portalGeo != null) return;
 
-        // drop a glowing oval portal in the middle of the stage
-        // its base sits at y=0, so it reads as a tall doorway you walk through
+        // glowing oval portal; its base sits at y=0, so it reads as a tall
+        // doorway you walk through
         portalPosition = new Vector3f(0, 4.2f, 25f);
 
         portalNode = new Node("Portal");
@@ -213,7 +237,6 @@ public class StageManager {
     }
 
     private void updateLighting() {
-        // clear out whatever lights the old stage had
         for (com.jme3.light.Light light : rootNode.getLocalLightList()) {
             rootNode.removeLight(light);
         }
@@ -221,7 +244,6 @@ public class StageManager {
         ColorRGBA skyColor = currentStage.getSkyColor();
         app.getViewPort().setBackgroundColor(skyColor);
 
-        // set up the new stage's lights
         DirectionalLight sun = new DirectionalLight();
         sun.setDirection(currentStage.getSunDirection());
         sun.setColor(ColorRGBA.White.mult(1.0f));
@@ -257,7 +279,6 @@ public class StageManager {
         return currentStage;
     }
 
-    // placeholder wiring — PlayerStats comes in through this setter
     private PlayerStats playerStats;
     public void setPlayerStats(PlayerStats stats) {
         this.playerStats = stats;

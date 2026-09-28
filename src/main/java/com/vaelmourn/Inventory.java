@@ -1,10 +1,5 @@
 package com.vaelmourn;
 
-/**
- * The player's inventory: a 5x5 grid of storage slots, five equipment slots
- * (helmet, chestplate, leggings, shield, boots) and five primary toolbar slots
- * (weapon, potion / key items).
- */
 public class Inventory {
 
     public static final int GRID_COLS = 5;
@@ -39,7 +34,14 @@ public class Inventory {
         for (int i = 0; i < TOOLBAR_SIZE; i++) toolbar[i] = new Slot(null, 0);
     }
 
-    // ---- grid helpers ----
+    /**
+     * Empties every slot; arrays stay alive so UI/handlers still referencing this Inventory stay valid.
+     */
+    public void clearAll() {
+        for (Slot s : grid) s.clear();
+        for (Slot s : equipment) s.clear();
+        for (Slot s : toolbar) s.clear();
+    }
 
     public Slot getGridSlot(int index) {
         return grid[index];
@@ -53,8 +55,6 @@ public class Inventory {
         return grid;
     }
 
-    // ---- equipment helpers ----
-
     public Slot getEquipSlot(EquipSlot slot) {
         return equipment[slot.ordinal()];
     }
@@ -63,16 +63,10 @@ public class Inventory {
         return equipment;
     }
 
-    // ---- toolbar helpers ----
-
     public Slot getToolbarSlot(int index) {
         return toolbar[index];
     }
 
-    /**
-     * Removes {@code count} from a toolbar slot (for quick-use consumables),
-     * clearing the slot if the stack runs out.
-     */
     public void removeFromToolbar(int index, int count) {
         if (index < 0 || index >= TOOLBAR_SIZE) return;
         Slot slot = toolbar[index];
@@ -85,12 +79,8 @@ public class Inventory {
         return toolbar;
     }
 
-    // ---- putting items away ----
-
     /**
-     * Tries to add an item to the grid, stacking where possible.
-     * @return true if the whole stack was placed, false if some (or all)
-     *         could not fit.
+     * @return true if the whole stack was placed, false if some (or all) could not fit.
      */
     public boolean addItem(String itemId, int count) {
         Item item = ItemRegistry.get(itemId);
@@ -98,7 +88,6 @@ public class Inventory {
 
         int remaining = count;
 
-        // 1. Top up matching stacks first (for stackable items)
         if (item.maxStack > 1) {
             for (Slot s : grid) {
                 if (s.isEmpty() || !s.itemId.equals(itemId)) continue;
@@ -111,7 +100,6 @@ public class Inventory {
             }
         }
 
-        // 2. Then dump the leftovers into empty slots
         for (Slot s : grid) {
             if (!s.isEmpty()) continue;
             int placed = Math.min(item.maxStack, remaining);
@@ -124,9 +112,6 @@ public class Inventory {
         return remaining <= 0;
     }
 
-    /**
-     * @return the slot at (col,row) of the grid for the UI to manipulate.
-     */
     public Slot slotAt(int col, int row) {
         return getGridSlot(col, row);
     }
@@ -140,12 +125,9 @@ public class Inventory {
     }
 
     /**
-     * Moves the contents of slot {@code from} into slot {@code to}. If the two
-     * slots hold the same stackable item, it stacks the quantities rather than
-     * swapping. Otherwise the two slots' contents are swapped.
-     *
-     * Callers are responsible for enforcing any slot-compatibility rules
-     * (equipment type, toolbar allowed categories) before invoking this.
+     * Moves slot {@code from} into {@code to}: matching stackable items merge
+     * quantities, otherwise the two slots swap. Callers must enforce
+     * slot-compatibility rules (equipment type, toolbar categories) first.
      */
     public void swapMove(Slot from, Slot to) {
         if (from == null || to == null) return;
@@ -168,7 +150,6 @@ public class Inventory {
             }
         }
 
-        // otherwise, straight swap the two slots
         String tmpId = to.itemId;
         int tmpCount = to.count;
         to.itemId = from.itemId;

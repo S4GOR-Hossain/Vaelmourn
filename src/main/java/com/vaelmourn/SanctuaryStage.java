@@ -60,7 +60,7 @@ public class SanctuaryStage implements Stage {
 
     @Override
     public ColorRGBA getSkyColor() {
-        return new ColorRGBA(0.55f, 0.65f, 0.75f, 1f); // warm golden-hour light
+        return new ColorRGBA(0.55f, 0.65f, 0.75f, 1f);
     }
 
     @Override
@@ -137,7 +137,6 @@ public class SanctuaryStage implements Stage {
     private void buildHealingFountain(AssetManager assetManager) {
         Node fountainNode = new Node("HealingFountain");
 
-        // Pedestal block
         Box pedestalBox = new Box(1.5f, 2f, 1.5f);
         Geometry pedestal = new Geometry("FountainPedestal", pedestalBox);
         Material pedestalMat = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
@@ -146,7 +145,6 @@ public class SanctuaryStage implements Stage {
         pedestal.setMaterial(pedestalMat);
         fountainNode.attachChild(pedestal);
 
-        // Glowing water globe floating on top
         com.jme3.scene.shape.Sphere waterSphere = new com.jme3.scene.shape.Sphere(32, 32, 1f);
         Geometry water = new Geometry("FountainWater", waterSphere);
         Material waterMat = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
@@ -164,12 +162,11 @@ public class SanctuaryStage implements Stage {
     private void buildShop(AssetManager assetManager) {
         Node shopNode = new Node("Shop");
 
-        // Two simple wooden stalls
         for (int i = 0; i < 2; i++) {
             Box stallBox = new Box(2f, 1.5f, 2f);
             Geometry stall = new Geometry("Stall_" + i, stallBox);
             Material stallMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-            stallMat.setColor("Color", new ColorRGBA(0.6f, 0.5f, 0.3f, 1f)); // brown wood
+            stallMat.setColor("Color", new ColorRGBA(0.6f, 0.5f, 0.3f, 1f));
             stall.setMaterial(stallMat);
             stall.setLocalTranslation(8f + i * 5f, 1.5f, 0);
             shopNode.attachChild(stall);
@@ -182,12 +179,11 @@ public class SanctuaryStage implements Stage {
     private void buildChests(AssetManager assetManager) {
         Node chestNode = new Node("ChestArea");
 
-        // Spawn three chests in a row
         for (int i = 0; i < 3; i++) {
             Box chestBox = new Box(1f, 1f, 1f);
             Geometry chest = new Geometry("Chest_" + i, chestBox);
             Material chestMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-            chestMat.setColor("Color", new ColorRGBA(0.9f, 0.8f, 0.2f, 1f)); // shiny gold
+            chestMat.setColor("Color", new ColorRGBA(0.9f, 0.8f, 0.2f, 1f));
             chest.setMaterial(chestMat);
             chest.setLocalTranslation(-10f - i * 4f, 1f, 0);
             chestNode.attachChild(chest);

@@ -5,9 +5,6 @@ import com.jme3.math.ColorRGBA;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Static catalog of all item definitions in the game.
- */
 public final class ItemRegistry {
 
     private static final Map<String, Item> REGISTRY = new HashMap<>();
@@ -16,7 +13,6 @@ public final class ItemRegistry {
     }
 
     public static void registerDefaults() {
-        // ---------- weapons ----------
         add(new Item("iron_sword", "Iron Sword", Item.Category.WEAPON, new ColorRGBA(0.7f, 0.7f, 0.75f, 1f),
                 1, 40, "Models/Weapons/Melee/Sword.glb", "Textures/Items/iron_sword.png",
                 "A balanced one-handed blade."));
@@ -27,21 +23,17 @@ public final class ItemRegistry {
         add(new Item("pistol", "Pistol", Item.Category.WEAPON, new ColorRGBA(0.2f, 0.2f, 0.25f, 1f),
                 1, 30, null, null, "A reliable sidearm."));
 
-        // fast, light — the mobility blade
         add(new Item("hunters_blade", "Hunter's Blade", Item.Category.WEAPON, new ColorRGBA(0.45f, 0.75f, 0.5f, 1f),
                 1, 55, null, "Textures/Items/iron_sword.png",
                 "Swift and light. Weak hits, very fast swings."));
-        // slow, brutal — big damage and hard knockback
         add(new Item("heavy_blade", "Heavy Blade", Item.Category.WEAPON, new ColorRGBA(0.72f, 0.35f, 0.2f, 1f),
                 1, 75, null, "Textures/Items/iron_sword.png",
                 "A slab of metal on a handle. Huge damage, slow swing."));
 
-        // shields & specials
         add(new Item("kite_shield", "Kite Shield", Item.Category.SHIELD, new ColorRGBA(0.55f, 0.5f, 0.45f, 1f),
                 1, 25, "Models/Weapons/Special/kite_shield.glb", "Textures/Items/iron_shield.png",
                 "Blocks a large share of incoming damage while held."));
 
-        // ---------- consumables ----------
         add(new Item("health_potion", "Health Potion", Item.Category.CONSUMABLE, new ColorRGBA(0.9f, 0.2f, 0.2f, 1f),
                 10, 8, null, "Textures/Items/health_potion.png",
                 "Restores 40 HP instantly.",
@@ -64,14 +56,13 @@ public final class ItemRegistry {
                 "Regenerates 5 HP per second for 20s.",
                 Item.Effect.REGEN, 5f, 20f));
 
-        // ---------- keys (progression, never consumed like potions) ----------
+        // keys: progression items, never consumed like potions
         add(new Item("dungeon_key", "Dungeon Key", Item.Category.KEY, new ColorRGBA(0.9f, 0.8f, 0.2f, 1f),
                 5, 15, null, "Textures/Items/dungeon_key.png",
                 "Opens sealed doors in the dungeon biomes."));
         add(new Item("boss_key", "Boss Key", Item.Category.KEY, new ColorRGBA(0.6f, 0.2f, 0.8f, 1f),
                 5, 25, null, null, "Opens the boss chamber door."));
 
-        // ---------- crafting materials ----------
         add(material("soul_dust", "Soul Dust", new ColorRGBA(0.6f, 0.9f, 1.0f, 1f), 1, null,
                 "Currency left behind by fallen enemies.", 1));
         add(material("iron_ingot", "Iron Ingot", new ColorRGBA(0.6f, 0.65f, 0.7f, 1f), 3,
@@ -89,7 +80,6 @@ public final class ItemRegistry {
         add(material("ember_core", "Ember Core", new ColorRGBA(1f, 0.45f, 0.1f, 1f), 15,
                 null, "A core that still glows with heat. Tied to fire and damage upgrades.", 2));
 
-        // ---------- armor / equipment ----------
         add(equipment("iron_helmet", "Iron Helmet", Item.Category.HELMET,
                 new ColorRGBA(0.62f, 0.66f, 0.72f, 1f), 45,
                 "Textures/Items/iron_helmet.png", "Steel headguard. Boosts defense.", 8f, 0f));
@@ -104,14 +94,13 @@ public final class ItemRegistry {
                 "Textures/Items/iron_boot.png", "Sturdy sabatons. Larger movement-speed bonus.", 0f, 1.2f));
     }
 
-    /** Convenience constructor for materials with a rarity tier. */
     private static Item material(String id, String name, ColorRGBA color, int value,
                                  String icon, String desc, int tier) {
         return new Item(id, name, Item.Category.MATERIAL, color, 99, value,
                 null, icon, desc, Item.Effect.NONE, 0f, 0f, 0f, 0f, tier);
     }
 
-    /** Convenience constructor for equipment (unique, grants stat bonuses). */
+    /** Equipment: unique (max stack 1) and carries defense/move-speed bonuses. */
     private static Item equipment(String id, String name, Item.Category cat, ColorRGBA color,
                                   int value, String icon, String desc, float defense, float moveSpeed) {
         return new Item(id, name, cat, color, 1, value,

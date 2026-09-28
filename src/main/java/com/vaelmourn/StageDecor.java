@@ -18,19 +18,14 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Small shared helpers for building scenery with collision — the tree-ring and
- * ice-spike recipes used by the boss arenas (and by the biome stages that
- * need the same tricks).
+ * Shared helpers for building scenery with collision — the tree-ring and ice-spike
+ * recipes used by the boss arenas (and the biome stages needing the same tricks).
  */
 public final class StageDecor {
 
     private StageDecor() {
     }
 
-    /**
-     * Spawns a forest-pack tree model at (x,z) with a trunk hitbox. Arenas use
-     * this for their enclosing "wall of trees" (Tree Warden / Beekeeper rings).
-     */
     public static void addTreeWithHitbox(AssetManager assetManager, Node parent,
                                          BulletAppState bulletAppState,
                                          List<RigidBodyControl> physicsOut,
@@ -58,10 +53,6 @@ public final class StageDecor {
         physicsOut.add(physics);
     }
 
-    /**
-     * Pointy cone mesh used for ice spikes — the same recipe the Frozen Depths
-     * stage uses, shared with the Frost Giant arena ring.
-     */
     public static Mesh iceSpike(float baseRadius, float height) {
         int sides = 8;
         Mesh mesh = new Mesh();

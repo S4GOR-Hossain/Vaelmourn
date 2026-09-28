@@ -17,15 +17,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-/**
- * Dark Royale Kingdom Court — Stage 5 biome (last biome, guarded by the king).
- * Unlike the earlier biomes it only has 3 regular stages (variants 1-3) before
- * the Fallen King boss arena. Dark stone chambers ringed with tall pillars and
- * overturned court ornaments.
- */
+/** Dark Royale Kingdom Court — Stage 5 biome (last biome), 3 variants then the Fallen King arena. */
 public class DarkRoyaleKingdomCourtStage implements Stage {
 
     private static final float HALF_EXTENT = 60f;
+
+    private static final String[] ENEMY_MODELS = {
+            "Models/Characters/enemy/kingdomcourt_enemy.gltf",
+            "Models/Characters/enemy/kingdomcourt_enemy2.gltf"
+    };
 
     private static final String[] STONE_MODELS = {
             "Models/Environment/Forest/stone_tallA.glb",
@@ -73,8 +73,7 @@ public class DarkRoyaleKingdomCourtStage implements Stage {
                                                BulletAppState bulletAppState, int loopCount) {
         List<EnemyController> enemies = new ArrayList<>();
 
-        // the court gets mean fast — every stage hosts tier-3 elites at a heavy
-        // scale multiplier, more of them per stage and per loop
+        // the court gets mean fast: tier-3 elites at a heavy scale, more of them per stage/loop
         int enemyCount = 8 + variant + (loopCount / 2);
         float scale = 1.75f + variant * 0.35f;
         Random rand = new Random(88 + variant * 7 + loopCount);
@@ -85,9 +84,10 @@ public class DarkRoyaleKingdomCourtStage implements Stage {
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
 
+            String modelPath = ENEMY_MODELS[(variant + i) % ENEMY_MODELS.length];
             EnemyController enemy = new EnemyController(
                 assetManager, stageNode, bulletAppState,
-                new Vector3f(x, 5f, z), 3, loopCount, scale
+                new Vector3f(x, 5f, z), 3, loopCount, scale, false, modelPath
             );
             enemies.add(enemy);
         }
@@ -102,12 +102,12 @@ public class DarkRoyaleKingdomCourtStage implements Stage {
 
     @Override
     public ColorRGBA getSkyColor() {
-        return new ColorRGBA(0.12f, 0.12f, 0.2f, 1f); // smothering dark royal night
+        return new ColorRGBA(0.12f, 0.12f, 0.2f, 1f);
     }
 
     @Override
     public ColorRGBA getAmbientColor() {
-        return new ColorRGBA(0.4f, 0.38f, 0.55f, 1f).mult(0.6f); // hushed violet torchlight
+        return new ColorRGBA(0.4f, 0.38f, 0.55f, 1f).mult(0.6f);
     }
 
     @Override
@@ -135,7 +135,7 @@ public class DarkRoyaleKingdomCourtStage implements Stage {
         Box groundBox = new Box(HALF_EXTENT, 0.5f, HALF_EXTENT);
         Geometry ground = new Geometry("KingdomCourtGround", groundBox);
         Material mat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-        mat.setColor("Color", new ColorRGBA(0.2f, 0.2f, 0.26f, 1f)); // hewn midnight stone
+        mat.setColor("Color", new ColorRGBA(0.2f, 0.2f, 0.26f, 1f));
         ground.setMaterial(mat);
         ground.setLocalTranslation(0, -0.5f, 0);
         stageNode.attachChild(ground);
@@ -173,8 +173,7 @@ public class DarkRoyaleKingdomCourtStage implements Stage {
         // variant re-seeds the ornament layout
         Random rand = new Random(102 + variant);
 
-        // tall stone pillars mark the court—dense enough to feel royal, spaced
-        // enough to keep the middle clear for fighting
+        // pillars dense enough to feel royal, spaced enough to keep the middle clear
         for (int i = 0; i < 24; i++) {
             float x = (rand.nextFloat() - 0.5f) * 100f;
             float z = (rand.nextFloat() - 0.5f) * 100f;
@@ -198,7 +197,6 @@ public class DarkRoyaleKingdomCourtStage implements Stage {
             physicsObjects.add(physics);
         }
 
-        // a few wide, flat dais slabs to break up the floor (visual only)
         for (int i = 0; i < 8; i++) {
             float x = (rand.nextFloat() - 0.5f) * 90f;
             float z = (rand.nextFloat() - 0.5f) * 90f;

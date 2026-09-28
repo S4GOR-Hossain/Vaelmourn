@@ -18,14 +18,14 @@ public class Weapons {
 
         public final float damage;
         public final float attackSpeed;       // swings/attacks per second
-        public final float heavyMultiplier;   // damage multiplier for heavy melee hits
+        public final float heavyMultiplier;
         public final float range;
-        public final float projectileSpeed;   // only matters for ranged weapons
-        public final float adsFov;            // fov while aiming down sights (RMB held)
+        public final float projectileSpeed;
+        public final float adsFov;
         public final float blockReduction;    // 0..1 fraction of incoming damage blocked
-        public final float pushForce;         // knockback strength for the shield push
-        public final float parryWindow;       // how long the parry window lasts, in seconds
-        public final float meleeKnockback;    // how hard a melee hit shoves the enemy
+        public final float pushForce;
+        public final float parryWindow;
+        public final float meleeKnockback;
 
         public WeaponDef(
                 String id,
@@ -92,7 +92,6 @@ public class Weapons {
     }
 
     private void registerDefaults() {
-        // --- melee ---
         // balanced all-rounder; the default loadout
         add(new WeaponDef(
                 "iron_sword",
@@ -111,7 +110,6 @@ public class Weapons {
                 0f, 55f, 0f, 0f, 0.15f, 8f
         ));
 
-        // slow and heavy: big hits, sluggish swing, shoves enemies hard
         add(new WeaponDef(
                 "heavy_blade",
                 WeaponGroup.MELEE,
@@ -128,7 +126,6 @@ public class Weapons {
                 0f, 55f, 0f, 0f, 0.14f, 6f
         ));
 
-        // --- ranged ---
         add(new WeaponDef(
                 "longbow",
                 WeaponGroup.RANGED,
@@ -145,7 +142,6 @@ public class Weapons {
                 120f, 42f, 0f, 0f, 0f, 0f
         ));
 
-        // --- shields & specials ---
         add(new WeaponDef(
                 "kite_shield",
                 WeaponGroup.SPECIAL,

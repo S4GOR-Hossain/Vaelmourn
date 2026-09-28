@@ -3,15 +3,7 @@ package com.vaelmourn;
 import com.jme3.math.ColorRGBA;
 
 /**
- * A single stackable item that lives in the player's inventory.
- * The visual icon is rendered as a colored cell on the HUD; the colour
- * helps identify the item category at a glance (mirroring the packed
- * screenshot style the UI was designed around).
- *
- * Each item carries the data gameplay needs: which broad group it belongs to
- * (consumable / equipment / weapon / material / key), its consumable effect
- * if it has one (potion type, power, duration), the stat bonuses it grants
- * while equipped, and a material tier for the future Forge/crafting step.
+ * A single stackable inventory item; the HUD icon colour encodes its category.
  */
 public class Item {
 
@@ -27,8 +19,7 @@ public class Item {
         BOOTS
     }
 
-    /** Coarse bucket every category maps into, so generic systems can ask
-     *  "is this a consumable?" without knowing every specific sub-category. */
+    /** Coarse bucket every category maps into, so generic systems can ask "is this a consumable?" without knowing every specific sub-category. */
     public enum Group {
         CONSUMABLE,
         EQUIPMENT,
@@ -37,7 +28,6 @@ public class Item {
         KEY
     }
 
-    /** What a consumable does when used. NONE means "not consumable". */
     public enum Effect {
         NONE,
         HEAL_INSTANT,
@@ -54,16 +44,14 @@ public class Item {
     public final ColorRGBA iconColor;
     public final int maxStack;
     public final int value;          // in soul dust, if it can be sold
-    public final String modelPath;   // optional 3D model for previews
-    public final String iconPath;    // optional 2D icon texture for the HUD
-    public final String description; // one-liner shown in the inventory tooltip
+    public final String modelPath;
+    public final String iconPath;
+    public final String description;
 
-    // consumable behaviour
     public final Effect effect;
     public final float power;        // heal amount, regen hp/sec, or buff magnitude (0..1)
-    public final float duration;     // seconds for duration-based effects
+    public final float duration;
 
-    // equipment bonuses (only meaningful for the four armor categories)
     public final float defenseBonus;
     public final float moveSpeedBonus;
 
@@ -105,8 +93,6 @@ public class Item {
     public Group getGroup() {
         return group;
     }
-
-    // ---- convenient shorthands callers use to build items ----
 
     public Item(String id, String name, Category category, ColorRGBA iconColor,
                 int maxStack, int value, String modelPath, String iconPath,
