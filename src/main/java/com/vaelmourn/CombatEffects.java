@@ -1,8 +1,6 @@
 package com.vaelmourn;
 
 import com.jme3.asset.AssetManager;
-import com.jme3.audio.AudioData;
-import com.jme3.audio.AudioNode;
 import com.jme3.font.BitmapFont;
 import com.jme3.font.BitmapText;
 import com.jme3.material.Material;
@@ -21,8 +19,8 @@ import java.util.Map;
 import java.util.Random;
 
 /**
- * Combat-feel layer: floating damage numbers, camera shake, hit/death/hurt sounds
- * and the player hurt-flash. Nothing here permanently changes the camera position.
+ * Combat-feel layer: floating damage numbers, camera shake and the player
+ * hurt-flash. Nothing here permanently changes the camera position.
  */
 public class CombatEffects {
 
@@ -41,11 +39,6 @@ public class CombatEffects {
     private static final float PLAYER_HURT_SHAKE_INTENSITY = 0.13f;
     private static final float PLAYER_HURT_SHAKE_DURATION = 0.24f;
 
-    private static final float HIT_SOUND_VOLUME = 0.85f;
-    private static final float DEATH_SOUND_VOLUME = 1.0f;
-    private static final float HURT_SOUND_VOLUME = 0.9f;
-    private static final float SWING_SOUND_VOLUME = 0.6f;
-    private static final float SWING_SOUND_VOLUME_HEAVY = 0.8f;
     private static final float HEAVY_SWING_SHAKE_INTENSITY = 0.06f;
     private static final float HEAVY_SWING_SHAKE_DURATION = 0.12f;
 
@@ -59,8 +52,6 @@ public class CombatEffects {
     private float shakeMag = 0f;
 
     private final List<DmgText> numbers = new ArrayList<>();
-
-    private final Map<String, AudioNode> audioCache = new HashMap<>();
 
     private final Spatial playerModel;
     private final List<Geometry> playerGeos = new ArrayList<>();
@@ -118,9 +109,6 @@ public class CombatEffects {
         }
         startShake(killed ? KILL_SHAKE_INTENSITY : shakeAmp,
                 killed ? KILL_SHAKE_DURATION : HIT_SHAKE_DURATION);
-        playSound(killed ? "Sounds/kill.wav" : "Sounds/hit.wav",
-                enemy != null ? enemy.getPosition() : null,
-                killed ? DEATH_SOUND_VOLUME : HIT_SOUND_VOLUME);
     }
 
     public void spawnDamageNumber(Vector3f worldPos, int amount) {
@@ -146,8 +134,6 @@ public class CombatEffects {
     public void onPlayerDamaged() {
         flashPlayer(PLAYER_HURT_FLASH_DURATION);
         startShake(PLAYER_HURT_SHAKE_INTENSITY, PLAYER_HURT_SHAKE_DURATION);
-        playSound("Sounds/hurt.wav",
-                playerModel != null ? playerModel.getWorldTranslation() : null, HURT_SOUND_VOLUME);
     }
 
     public void flashPlayer(float seconds) {
@@ -183,7 +169,6 @@ public class CombatEffects {
     }
 
     public void onPlayerAttack(Vector3f atPos, boolean heavy) {
-        playSound("Sounds/swing.wav", atPos, heavy ? SWING_SOUND_VOLUME_HEAVY : SWING_SOUND_VOLUME);
         if (heavy) startShake(HEAVY_SWING_SHAKE_INTENSITY, HEAVY_SWING_SHAKE_DURATION);
     }
 
@@ -236,25 +221,5 @@ public class CombatEffects {
         shakeMag = Math.max(shakeMag, Math.abs(magnitude));
         shakeSpan = Math.max(shakeSpan, seconds);
         shakeTimer = shakeSpan;
-    }
-
-    private void playSound(String name, Vector3f position, float volume) {
-        try {
-            AudioNode node = audioCache.get(name);
-            if (node == null) {
-                node = new AudioNode(assetManager, name, AudioData.DataType.Buffer);
-                node.setPositional(true);
-                node.setDirectional(false);
-                node.setReverbEnabled(false);
-                audioCache.put(name, node);
-            }
-            node.setVolume(volume);
-            if (position != null) {
-                node.setLocalTranslation(position);
-            }
-            node.playInstance();
-        } catch (Exception e) {
-            System.err.println("CombatEffects: sound '" + name + "' failed: " + e.getMessage());
-        }
     }
 }

@@ -1,0 +1,243 @@
+Sep 28, 2026 9:17:00 PM com.jme3.system.JmeDesktopSystem initialize
+INFO: Running on jMonkeyEngine 3.6.1-stable
+ * Branch: HEAD
+ * Git Hash: 4de10c3
+ * Build Date: 2023-06-23
+[LWJGL] [ThreadLocalUtil] Unsupported JNI version detected, this may result in a crash. Please inform LWJGL developers.
+Sep 28, 2026 9:17:00 PM com.jme3.system.lwjgl.LwjglContext printContextInitInfo
+INFO: LWJGL 3.3.2+13 context running on thread jME3 Main
+ * Graphics Adapter: GLFW 3.4.0 Win32 WGL Null EGL OSMesa VisualC DLL
+Sep 28, 2026 9:17:00 PM com.jme3.renderer.opengl.GLRenderer loadCapabilitiesCommon
+INFO: OpenGL Renderer Information
+ * Vendor: ATI Technologies Inc.
+ * Renderer: AMD Radeon(TM) RX Vega 11 Graphics
+ * OpenGL Version: 3.2.0 Core Profile Context 26.5.2.260413
+ * GLSL Version: 4.60
+ * Profile: Core
+Sep 28, 2026 9:17:00 PM com.jme3.renderer.opengl.GLRenderer setMainFrameBufferSrgb
+WARNING: Driver claims that default framebuffer is not sRGB capable. Enabling anyway.
+Sep 28, 2026 9:17:01 PM com.jme3.asset.AssetConfig loadText
+WARNING: Cannot find loader com.jme3.audio.plugins.OGGLoader
+Sep 28, 2026 9:17:01 PM com.jme3.audio.openal.ALAudioRenderer initOpenAL
+INFO: Audio Renderer Information
+ * Device: OpenAL Soft
+ * Vendor: OpenAL Community
+ * Renderer: OpenAL Soft
+ * Version: 1.1 ALSOFT 1.23.0
+ * Supported channels: 64
+ * ALC extensions: ALC_ENUMERATE_ALL_EXT ALC_ENUMERATION_EXT ALC_EXT_CAPTURE ALC_EXT_DEDICATED ALC_EXT_disconnect ALC_EXT_EFX ALC_EXT_thread_local_context ALC_SOFT_device_clock ALC_SOFT_HRTF ALC_SOFT_loopback ALC_SOFT_loopback_bformat ALC_SOFT_output_limiter ALC_SOFT_output_mode ALC_SOFT_pause_device ALC_SOFT_reopen_device
+ * AL extensions: AL_EXT_ALAW AL_EXT_BFORMAT AL_EXT_DOUBLE AL_EXT_EXPONENT_DISTANCE AL_EXT_FLOAT32 AL_EXT_IMA4 AL_EXT_LINEAR_DISTANCE AL_EXT_MCFORMATS AL_EXT_MULAW AL_EXT_MULAW_BFORMAT AL_EXT_MULAW_MCFORMATS AL_EXT_OFFSET AL_EXT_source_distance_model AL_EXT_SOURCE_RADIUS AL_EXT_STEREO_ANGLES AL_LOKI_quadriphonic AL_SOFT_bformat_ex AL_SOFTX_bformat_hoa AL_SOFT_block_alignment AL_SOFT_callback_buffer AL_SOFTX_convolution_reverb AL_SOFT_deferred_updates AL_SOFT_direct_channels AL_SOFT_direct_channels_remix AL_SOFT_effect_target AL_SOFT_events AL_SOFT_gain_clamp_ex AL_SOFTX_hold_on_disconnect AL_SOFT_loop_points AL_SOFTX_map_buffer AL_SOFT_MSADPCM AL_SOFT_source_latency AL_SOFT_source_length AL_SOFT_source_resampler AL_SOFT_source_spatialize AL_SOFTX_source_start_delay AL_SOFT_UHJ
+Sep 28, 2026 9:17:01 PM com.jme3.audio.openal.ALAudioRenderer initOpenAL
+INFO: Audio effect extension version: 1.0
+Sep 28, 2026 9:17:01 PM com.jme3.audio.openal.ALAudioRenderer initOpenAL
+INFO: Audio max auxiliary sends: 2
+SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See http://www.slf4j.org/codes.html#StaticLoggerBinder for further details.
+Lemur Glass style unavailable: java.lang.RuntimeException: Groovy scripting engine not available.
+Sep 28, 2026 9:17:01 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9f799dc20.
+Sep 28, 2026 9:17:01 PM com.jme3.bullet.objects.PhysicsRigidBody setGravity
+WARNING: The body isn't in any PhysicsSpace, and its gravity isn't protected. Unless protection is set, adding it to a PhysicsSpace will override its gravity.
+Sep 28, 2026 9:17:01 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9f799ec10.
+Sep 28, 2026 9:17:01 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b4c110.
+Sep 28, 2026 9:17:01 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b497a0.
+Sep 28, 2026 9:17:01 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b49e00.
+Sep 28, 2026 9:17:01 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b49ad0.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b49140.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b48e10.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b4b120.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b49470.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b4b450.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b4bab0.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b4a790.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b487b0.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b4a130.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b4b780.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b4a460.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b4aac0.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b4adf0.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b4bde0.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8b48ae0.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8682590.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8682f20.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8685560.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8684bd0.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c86838b0.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8682bf0.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8684570.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c86828c0.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8682260.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8684f00.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8683f10.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8683be0.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8685890.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8681f30.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c86848a0.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8684240.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8685230.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8683580.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody setGravity
+WARNING: The body isn't in any PhysicsSpace, and its gravity isn't protected. Unless protection is set, adding it to a PhysicsSpace will override its gravity.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8683250.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody setGravity
+WARNING: The body isn't in any PhysicsSpace, and its gravity isn't protected. Unless protection is set, adding it to a PhysicsSpace will override its gravity.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c83ffe30.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody setGravity
+WARNING: The body isn't in any PhysicsSpace, and its gravity isn't protected. Unless protection is set, adding it to a PhysicsSpace will override its gravity.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8400af0.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody setGravity
+WARNING: The body isn't in any PhysicsSpace, and its gravity isn't protected. Unless protection is set, adding it to a PhysicsSpace will override its gravity.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c83fde50.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody setGravity
+WARNING: The body isn't in any PhysicsSpace, and its gravity isn't protected. Unless protection is set, adding it to a PhysicsSpace will override its gravity.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8401480.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c83feb10.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8400e20.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8401150.
+Sep 28, 2026 9:17:02 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c83fe4b0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c84007c0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c84017b0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c83ff7d0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8400490.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8400e20.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8401150.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c8401480.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c83fe180.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c83feb10.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c83fe4b0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c83fe7e0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c83fee40.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c83ff170.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c83ff4a0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c83ffb00.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e855b0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e865a0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e845c0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e868d0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e84c20.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e84f50.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e832a0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e83f60.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e85280.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e835d0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e858e0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e85c10.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e83900.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e848f0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e85f40.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e86c00.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e83c30.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e84290.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9c6e86270.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9f7b647c0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9f7b66140.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9f7b637d0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9f7b65150.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody setGravity
+WARNING: The body isn't in any PhysicsSpace, and its gravity isn't protected. Unless protection is set, adding it to a PhysicsSpace will override its gravity.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9f7b64af0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody setGravity
+WARNING: The body isn't in any PhysicsSpace, and its gravity isn't protected. Unless protection is set, adding it to a PhysicsSpace will override its gravity.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9f7b67130.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody setGravity
+WARNING: The body isn't in any PhysicsSpace, and its gravity isn't protected. Unless protection is set, adding it to a PhysicsSpace will override its gravity.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9f7b63e30.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody setGravity
+WARNING: The body isn't in any PhysicsSpace, and its gravity isn't protected. Unless protection is set, adding it to a PhysicsSpace will override its gravity.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9f7b66470.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody setGravity
+WARNING: The body isn't in any PhysicsSpace, and its gravity isn't protected. Unless protection is set, adding it to a PhysicsSpace will override its gravity.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody rebuildRigidBody
+INFO: Created 1f9f7b667a0.
+Sep 28, 2026 9:17:24 PM com.jme3.bullet.objects.PhysicsRigidBody setGravity
+WARNING: The body isn't in any PhysicsSpace, and its gravity isn't protected. Unless protection is set, adding it to a PhysicsSpace will override its gravity.

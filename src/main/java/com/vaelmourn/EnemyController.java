@@ -80,6 +80,7 @@ public class EnemyController {
     private final Node parentNode;
 
     private final String modelPath; // null = capsule placeholder
+    private final String bossId; // e.g. "tree_warden" from the boss model path, else null
     private Spatial bodyModel = null;
 
     private String idleClip;
@@ -139,6 +140,10 @@ public class EnemyController {
         this.variantScale = variantScale;
         this.boss = boss;
         this.modelPath = modelPath;
+        this.bossId = bossIdFrom(modelPath);
+        if (bossId != null) {
+            SoundManager.registerBoss(bossId);
+        }
 
         float baseHealth;
         float baseDamage;
@@ -365,6 +370,7 @@ public class EnemyController {
                 attacking = false;
                 if (playerStats != null && distToPlayer <= attackRange * 1.1f) {
                     playerStats.damage(damage);
+                    if (bossId != null) SoundManager.playBossDamageDeal(bossId);
                     // Frozen Depths 3 hits chill the player briefly (non-stacking)
                     if (slowOnHit > 0f) {
                         playerStats.applySlow(0.35f, slowOnHit);
@@ -384,6 +390,11 @@ public class EnemyController {
                     attacking = true;
                     attackWindupTimer = ATTACK_TELEGRAPH_DURATION;
                     playAnim("Attack");
+                    if (bossId != null) {
+                        SoundManager.playBossAttack(bossId);
+                    } else {
+                        SoundManager.playEnemyAttack();
+                    }
                 }
             } else {
                 // chase the player, but slower while being knocked back
@@ -481,6 +492,7 @@ public class EnemyController {
         hitEmitter.setEnabled(true);
         hitEmitter.emitAllParticles();
         emitterTimer = EMITTER_LIFETIME;
+        if (bossId != null) SoundManager.playBossHurt(bossId);
 
         if (health <= 0f) {
             die();
@@ -503,6 +515,11 @@ public class EnemyController {
         deathTimer = DEATH_EFFECT_DURATION;
         physics.setWalkDirection(Vector3f.ZERO);
         playAnim("Death");
+        if (bossId != null) {
+            SoundManager.onBossDefeated(bossId);
+        } else {
+            SoundManager.playEnemyDeath();
+        }
 
         deathEmitter.setLocalTranslation(node.getWorldTranslation().add(0f, 0.7f, 0f));
         deathEmitter.setEnabled(true);
@@ -510,6 +527,7 @@ public class EnemyController {
     }
 
     public void cleanup(BulletAppState bulletAppState) {
+        if (bossId != null) SoundManager.unregisterBoss(bossId);
         bulletAppState.getPhysicsSpace().remove(physics);
         hitEmitter.removeFromParent();
         deathEmitter.removeFromParent();
@@ -554,6 +572,15 @@ public class EnemyController {
             }
         }
         return null;
+    }
+
+    /** Boss id from "Models/Characters/boss/<name>.gltf" (only bosses carry this path). */
+    private static String bossIdFrom(String modelPath) {
+        if (modelPath == null || !modelPath.contains("boss/")) return null;
+        int start = modelPath.lastIndexOf('/') + 1;
+        int end = modelPath.lastIndexOf('.');
+        if (end <= start) return null;
+        return modelPath.substring(start, end);
     }
 
     /** Exact clip name first, then keyword match so prefixed names still resolve. */

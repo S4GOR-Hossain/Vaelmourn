@@ -350,6 +350,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
 
         effects = new CombatEffects(assetManager, rootNode, playerNode);
         combat.setEffects(effects);
+        SoundManager.init(assetManager, rootNode);
         buffEffects = new PlayerBuffEffects(assetManager, playerNode);
 
         ItemRegistry.registerDefaults();
@@ -357,6 +358,7 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         playerStats = new PlayerStats();
         playerStats.setDamageListener((amount, currentHealth) -> {
             if (effects != null) effects.onPlayerDamaged();
+            SoundManager.playPlayerHurt();
         });
         playerStats.setInventory(inventory);
         combat.setPlayerStats(playerStats);
@@ -835,6 +837,7 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
     private void triggerDeath() {
         if (playerDead) return;
         playerDead = true;
+        SoundManager.playPlayerDeath();
 
         if (inventoryOpen && inventoryUI != null) inventoryUI.setVisible(false);
         inventoryOpen = false;
@@ -1129,6 +1132,10 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
 
     @Override
     public void simpleUpdate(float tpf) {
+        if (stageManager != null) {
+            SoundManager.update(tpf, stageManager.getCurrentStage());
+        }
+
         // the world is frozen for a dead run; only the death screen reacts
         if (playerDead) {
             if (deathScreen != null) deathScreen.update(tpf);
@@ -1182,6 +1189,17 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
         }
 
         updateSanctuaryInteractables();
+
+        if (interactables != null && !interactables.isEmpty()
+                && "Sanctuary".equals(stageManager.getCurrentStageName())) {
+            Vector3f playerPos = playerNode.getWorldTranslation();
+            Vector3f facing = cam.getDirection();
+            for (Interactable it : interactables) {
+                if (it instanceof NPC npc && npc.getVoicePool() > 0) {
+                    SoundManager.maybeNpcVoice(npc.getVoicePool(), npc.getPosition(), playerPos, facing, tpf);
+                }
+            }
+        }
 
         updateHUD();
 
@@ -1691,6 +1709,7 @@ Vector3f playerPos = playerNode.getWorldTranslation().clone();
 
         NPC merchant1 = new NPC("Merchant Elara", new Vector3f(-10f, 0f, -20f));
         merchant1.build(assetManager, rootNode, bulletAppState);
+        merchant1.setVoicePool(1);
         merchant1.addShopItem("health_potion", 15);
         merchant1.addShopItem("speed_potion", 18);
         merchant1.addShopItem("strength_potion", 22);
@@ -1709,6 +1728,7 @@ Vector3f playerPos = playerNode.getWorldTranslation().clone();
 
         NPC merchant2 = new NPC("Blacksmith Kain", new Vector3f(15f, 0f, 5f));
         merchant2.build(assetManager, rootNode, bulletAppState);
+        merchant2.setVoicePool(2);
         merchant2.addShopItem("iron_sword", 100);
         merchant2.addShopItem("hunters_blade", 120);
         merchant2.addShopItem("heavy_blade", 140);

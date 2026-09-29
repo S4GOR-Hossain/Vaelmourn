@@ -1,0 +1,15 @@
+Libbulletjme version 18.1.0 initializing
+Available animation clips: [Walk, Idle_Gun_Pointing, Punch_Left, Kick_Left, Run, Run_Shoot, Interact, Gun_Shoot, Sword_Slash, Wave, HitRecieve_2, Idle_Neutral, Run_Back, Idle_Sword, HitRecieve, Idle, Kick_Right, Punch_Right, Run_Left, Death, Roll, Run_Right, Idle_Gun, Idle_Gun_Shoot]
+WARNING: No crouch clip found.
+WARNING: No jump/fall clip found.
+[DEV] vaelmourn.startStage=1 -> booting directly into index 1
+[Darkwood] placed 32 trees with bark hitboxes.
+Spawned 5 enemies in Darkwood 1
+Loaded initial stage: Darkwood 1
+Spawned 3 chests in Sanctuary
+Spawned 2 NPCs in Sanctuary
+Portal spawned!
+[InventoryUI] XP fraction at open: 0.4 (xp=40.0 / toNext=100.0)
+[Darkwood] placed 32 trees with bark hitboxes.
+Spawned 6 enemies in Darkwood 2
+Transitioned to: Darkwood 2

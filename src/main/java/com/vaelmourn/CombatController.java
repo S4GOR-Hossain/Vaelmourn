@@ -232,6 +232,7 @@ public class CombatController {
                 target.applyKnockback(away.normalizeLocal(), 12f);
             }
             if (effects != null) effects.onEnemyHit(target, dealt, target.isDead(), RANGED_HIT_SHAKE);
+            SoundManager.playPlayerHit();
         }
         playAnimSafe("Shoot");
         notifySwing(false);
@@ -250,6 +251,7 @@ public class CombatController {
                 e.takeDamage(dealt);
                 e.applyKnockback(to.normalizeLocal(), 22f);
                 if (effects != null) effects.onEnemyHit(e, dealt, e.isDead(), SHIELD_PUSH_HIT_SHAKE);
+                SoundManager.playPlayerHit();
             }
         }
         playAnimSafe("Shield_Push");
@@ -275,6 +277,7 @@ public class CombatController {
                 e.takeDamage(damage);
                 e.applyKnockback(n, equipped.def.meleeKnockback);
                 if (effects != null) effects.onEnemyHit(e, damage, e.isDead(), shakeAmp);
+                SoundManager.playPlayerHit();
             }
         }
     }
@@ -289,6 +292,9 @@ public class CombatController {
     }
 
     private void notifySwing(boolean heavy) {
+        if (equipped != null && equipped.def.group == Weapons.WeaponGroup.MELEE) {
+            SoundManager.playSwordSwing(heavy);
+        }
         if (effects != null) {
             effects.onPlayerAttack(playerNode.getWorldTranslation(), heavy);
         }

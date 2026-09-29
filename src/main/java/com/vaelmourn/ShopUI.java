@@ -70,6 +70,7 @@ public class ShopUI implements ActionListener, NPC.ShopUI {
     @Override
     public void show(NPC npc) {
         if (shopOpen) return;
+        SoundManager.playShopOpen();
 
         currentNPC = npc;
         shopOpen = true;

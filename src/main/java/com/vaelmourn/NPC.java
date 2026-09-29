@@ -30,6 +30,7 @@ public class NPC implements Interactable {
     private List<Integer> shopPrices = new ArrayList<>(); // all priced in soul dust
     private ShopUI shopUI;
     private RigidBodyControl physics;
+    private int voicePool = 0; // 1 or 2 maps to the NPC voiceline banks in SoundManager
     private static final float INTERACT_RANGE = 3.5f;
 
     public NPC(String name, Vector3f position) {
@@ -107,6 +108,14 @@ public class NPC implements Interactable {
 
     public RigidBodyControl getPhysics() {
         return physics;
+    }
+
+    public int getVoicePool() {
+        return voicePool;
+    }
+
+    public void setVoicePool(int pool) {
+        this.voicePool = pool;
     }
 
     @Override
