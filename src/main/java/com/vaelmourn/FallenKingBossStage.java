@@ -1,6 +1,7 @@
 package com.vaelmourn;
 
 import com.jme3.asset.AssetManager;
+import com.jme3.bounding.BoundingBox;
 import com.jme3.bullet.BulletAppState;
 import com.jme3.bullet.collision.shapes.BoxCollisionShape;
 import com.jme3.bullet.control.RigidBodyControl;
@@ -10,17 +11,25 @@ import com.jme3.math.FastMath;
 import com.jme3.math.Vector3f;
 import com.jme3.scene.Geometry;
 import com.jme3.scene.Node;
+import com.jme3.scene.Spatial;
 import com.jme3.scene.shape.Box;
-import com.jme3.scene.shape.Cylinder;
 
 import java.util.Random;
 
 /** Fallen King Boss Arena — the final fight: a dark royal court of tall pillars and an overturned throne. */
 public class FallenKingBossStage extends BossStage {
 
+    private static final String DUNGEON =
+            "Models/Environment/KayKit_Dungeon_Pack_1.1_FREE/Assets/gltf/";
+
     @Override
     protected void buildArenaDecor(AssetManager assetManager, BulletAppState bulletAppState) {
         Random rand = new Random(775);
+        String[] pillars = {
+                DUNGEON + "pillar_decorated.gltf",
+                DUNGEON + "pillar.gltf",
+                DUNGEON + "column.gltf"
+        };
 
         for (int i = 0; i < 16; i++) {
             float angle = (i / 16f) * FastMath.TWO_PI;
@@ -28,22 +37,59 @@ public class FallenKingBossStage extends BossStage {
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
 
-            Cylinder pillar = new Cylinder(2, 14, 1.6f, 11f, true);
-            Geometry pillarGeo = new Geometry("CourtPillar_" + i, pillar);
-            Material pillarMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-            pillarMat.setColor("Color", new ColorRGBA(0.32f, 0.3f, 0.34f, 1f));
-            pillarGeo.setMaterial(pillarMat);
-            pillarGeo.rotate(FastMath.HALF_PI, 0f, 0f);
-            pillarGeo.setLocalTranslation(x, 5.5f, z);
-            stageNode.attachChild(pillarGeo);
-
-            // volumetric collider so the columns actually block movement
-            BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(1.6f, 5.5f, 1.6f));
-            RigidBodyControl physics = new RigidBodyControl(shape, 0);
-            physics.setPhysicsLocation(new Vector3f(x, 5.5f, z));
-            bulletAppState.getPhysicsSpace().add(physics);
-            physicsObjects.add(physics);
+            Spatial pillar = StageDecor.placeFlat(stageNode, assetManager,
+                    pillars[rand.nextInt(pillars.length)], x, z,
+                    3.5f + rand.nextFloat() * 1.5f, rand);
+            pillar.updateModelBound();
+            float hw = 1.5f;
+            float hh = 6f;
+            if (pillar.getWorldBound() instanceof BoundingBox bbox) {
+                Vector3f ext = bbox.getExtent(new Vector3f());
+                hw = FastMath.clamp(Math.max(ext.x, ext.z) * 0.7f, 1.2f, 2.6f);
+                hh = FastMath.clamp(ext.y, 4f, 9f);
+            }
+            StageDecor.addBlocker(bulletAppState, physicsObjects, x, z, hw, hh / 2f, hw);
         }
+
+        // broken banner wall backdrop along the west balk, so the court reads as ruined
+        String[] walls = {
+                DUNGEON + "wall.gltf",
+                DUNGEON + "wall_broken.gltf",
+                DUNGEON + "wall_arched.gltf"
+        };
+        String[] banners = {
+                DUNGEON + "banner_red.gltf",
+                DUNGEON + "banner_shield_blue.gltf",
+                DUNGEON + "banner_triple_red.gltf"
+        };
+        for (int i = 0; i < 5; i++) {
+            float angle = FastMath.PI * (0.74f + 0.13f * i);
+            float radius = 43f + rand.nextFloat() * 3f;
+            float x = FastMath.cos(angle) * radius;
+            float z = FastMath.sin(angle) * radius;
+            Spatial wall = StageDecor.placeFlat(stageNode, assetManager,
+                    walls[i % walls.length], x, z, 2f + rand.nextFloat(), rand);
+            wall.updateModelBound();
+            float hw = 2f;
+            float hh = 3f;
+            if (wall.getWorldBound() instanceof BoundingBox bbox) {
+                Vector3f ext = bbox.getExtent(new Vector3f());
+                hw = FastMath.clamp(Math.max(ext.x, ext.z) * 0.7f, 1.5f, 4f);
+                hh = FastMath.clamp(ext.y, 2f, 5f);
+            }
+            StageDecor.addBlocker(bulletAppState, physicsObjects, x, z, hw, hh / 2f, hw);
+            StageDecor.placeFlat(stageNode, assetManager,
+                    banners[rand.nextInt(banners.length)], x - 2.2f, z,
+                    1.3f + rand.nextFloat() * 0.4f, rand);
+        }
+
+        // the fallen king's own palace looming behind the north rim
+        Spatial castle = StageDecor.placeFlat(stageNode, assetManager,
+                "Models/Environment/LowPolyCastle/LowPolyCastle/Models/LowPolyCastle.glb",
+                0f, 51f, 1.2f, rand);
+        castle.rotate(0, FastMath.PI, 0);
+        castle.updateModelBound();
+        StageDecor.addBlocker(bulletAppState, physicsObjects, 0f, 51f, 22f, 9f, 14f);
 
         float throneX = -26f;
         float throneZ = -26f;
@@ -91,6 +137,35 @@ public class FallenKingBossStage extends BossStage {
     @Override
     protected String getBossModelPath() {
         return "Models/Characters/boss/fallen_king.gltf";
+    }
+
+    @Override
+    protected BossSpec getBossSpec() {
+        BossSpec s = new BossSpec();
+        s.moveSpeed = 3.0f;
+        s.attackCooldown = 2.4f;
+        s.meleeRange = 3.6f;
+        s.charge = true;
+        s.chargeCooldown = 8f;
+        s.chargeSpeed = 20f;
+        s.chargeRange = 6f;
+        s.chargeDuration = 0.65f;
+        s.chargeHitRadius = 3.2f;
+        s.chargeDamage = 17f;
+        s.aoe = true;
+        s.aoeWindup = 1.1f;
+        s.aoeCooldown = 11f;
+        s.aoeRadius = 10f;
+        s.aoeDamage = 15f;
+        s.summon = true;
+        s.summonInterval = 24f;
+        s.summonCount = 2;
+        s.summonCap = 4;
+        s.summonTier = 3;
+        s.summonModels = new String[]{
+                "Models/Characters/enemy/kingdomcourt_enemy.gltf",
+                "Models/Characters/enemy/kingdomcourt_enemy2.gltf"};
+        return s;
     }
 
     @Override

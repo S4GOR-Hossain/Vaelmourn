@@ -5,6 +5,7 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Function;
 
 import com.jme3.anim.AnimComposer;
 import com.jme3.anim.SkinningControl;
@@ -83,10 +84,16 @@ public class EnemyController {
     private final String bossId; // e.g. "tree_warden" from the boss model path, else null
     private Spatial bodyModel = null;
 
+    private final BossStage.BossSpec bossSpec; // boss-fight kit; null for regular enemies
+
     private String idleClip;
     private String walkClip;
     private String runClip;
     private String attackClip;
+    private String smashClip;
+    private String chargeClip;
+    private String aoeClip;
+    private String roarClip;
     private String hitClip;
     private String deathClip;
 
@@ -116,6 +123,50 @@ public class EnemyController {
     private static final float EMITTER_LIFETIME = 0.35f;
     private final ParticleEmitter deathEmitter;
 
+    // -- boss-fight state machine ------------------------------------------------
+    private static final int BOSS_ATTACK_NONE = 0;
+    private static final int BOSS_ATTACK_MELEE = 1;
+    private static final int BOSS_ATTACK_SMASH = 2;
+    private static final int BOSS_ATTACK_CHARGE = 3;
+    private static final int BOSS_ATTACK_AOE = 4;
+    private int attackState = BOSS_ATTACK_NONE;
+    private float attackTimer = 0f;
+    /** false = attack is winding up (rooted/aiming), true = the damaging phase */
+    private boolean attackActive = false;
+    private boolean chargeHitDone = false;
+    // eased movement so the boss accelerates/decelerates instead of snapping
+    private static final float BOSS_MOVE_SMOOTH_RATE = 10f;
+    private final Vector3f moveSmooth = new Vector3f();
+    // charge ramps into full speed and eases off at the tail, no teleport-lunge
+    private static final float CHARGE_RAMP_IN = 0.18f;
+    private static final float CHARGE_RAMP_OUT = 0.16f;
+    // hysteresis so chase anims don't flicker near the walk/stand boundary
+    private static final float CHASE_MOVE_THRESHOLD = 0.5f;
+    private static final float CHASE_IDLE_THRESHOLD = 0.1f;
+    private boolean wasMoving = false;
+    // eased vertical velocity for flyers: no snap, no sink, no endless bob
+    private static final float ALTITUDE_GAIN = 2.2f;
+    private static final float ALTITUDE_MAX_SPEED = 6f;
+    private static final float ALTITUDE_EASE = 4f;
+    private float altVy = 0f;
+    /** altitude the flyer keeps; smash dips it near the ground for the slam */
+    private float flightTargetY = 0f;
+    private final Vector3f chargeDir = new Vector3f();
+    private final List<EnemyController> summons = new ArrayList<>();
+    private Function<Integer, List<EnemyController>> summoner;
+    private Geometry telegraphGeo;
+    private Material telegraphMat;
+    /** loop scalar baked at spawn so boss-kit damages scale per run */
+    private float bossLoopScalar = 1f;
+
+    private int currentBossPhase = 1;
+    private float recoveryTimer = 0f;
+    private float phasePause = 0f;
+    private float smashCd = 0f;
+    private float chargeCd = 0f;
+    private float aoeCd = 0f;
+    private float summonTimer = 0f;
+
     public EnemyController(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState,
                           Vector3f spawnPos, int tier, int loopCount) {
         this(assetManager, parentNode, bulletAppState, spawnPos, tier, loopCount, 1f, false, null);
@@ -134,12 +185,20 @@ public class EnemyController {
     public EnemyController(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState,
                           Vector3f spawnPos, int tier, int loopCount, float variantScale, boolean boss,
                           String modelPath) {
+        this(assetManager, parentNode, bulletAppState, spawnPos, tier, loopCount,
+                variantScale, boss, modelPath, null);
+    }
+
+    public EnemyController(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState,
+                          Vector3f spawnPos, int tier, int loopCount, float variantScale, boolean boss,
+                          String modelPath, BossStage.BossSpec bossSpec) {
         this.tier = tier;
         this.assetManager = assetManager;
         this.parentNode = parentNode;
         this.variantScale = variantScale;
         this.boss = boss;
         this.modelPath = modelPath;
+        this.bossSpec = bossSpec;
         this.bossId = bossIdFrom(modelPath);
         if (bossId != null) {
             SoundManager.registerBoss(bossId);
@@ -175,7 +234,15 @@ public class EnemyController {
         this.maxHealth = baseHealth * loopScalar;
         this.health = maxHealth;
         this.damage = baseDamage * loopScalar;
-        this.moveSpeed = boss ? 3.2f : 4f + (tier - 1) * 1.5f;
+        this.moveSpeed = boss ? (bossSpec != null ? bossSpec.moveSpeed : 3.2f)
+                : 4f + (tier - 1) * 1.5f;
+        this.detectionRange = bossSpec != null && bossSpec.detectionRange > 0f
+                ? bossSpec.detectionRange : 25f;
+        this.attackRange = bossSpec != null && bossSpec.meleeRange > 0f
+                ? bossSpec.meleeRange : 2.5f;
+        this.slowOnHit = bossSpec != null ? bossSpec.slowOnHit : 0f;
+        this.flightTargetY = bossSpec != null ? bossSpec.hoverHeight : 0f;
+        this.bossLoopScalar = loopScalar;
 
         node = new Node(boss ? "Boss" : "Enemy_Tier" + tier);
 
@@ -215,6 +282,10 @@ public class EnemyController {
             walkClip = resolveClip(names, "Walk");
             runClip = resolveClip(names, "Run", "Fast_Flying");
             attackClip = resolveClip(names, "Attack", "Sword", "Bite_Front", "Headbutt", "Punch", "Weapon");
+            smashClip = resolveClip(names, "Smash", "Slam", "Stomp", "Attack");
+            chargeClip = resolveClip(names, "Charge", "Run", "Fast_Flying", "Bite_Front", "Attack");
+            aoeClip = resolveClip(names, "Telephone", "Magic", "Spell", "Special", "Attack");
+            roarClip = resolveClip(names, "Roar", "Battle_Cry", "Shout", "Attack");
             hitClip = resolveClip(names, "HitRecieve", "HitReact", "Hit");
             deathClip = resolveClip(names, "Death");
             if (idleClip != null) {
@@ -291,10 +362,20 @@ public class EnemyController {
         float physRadius = boss ? 0.85f : 0.45f;
         float physHeight = Math.max(1.15f, Math.min(visualHeight, boss ? 4.5f : 2.2f));
         physics = new BetterCharacterControl(physRadius, physHeight, 0.8f);
-        physics.setGravity(new Vector3f(0, -30f, 0));
+        if (boss && bossSpec != null && bossSpec.hoverHeight > 0f) {
+            // flying bosses ignore gravity: altitude is steered by the AI instead,
+            // so they neither fall nor sink into the floor mid-fight
+            physics.setGravity(Vector3f.ZERO);
+        } else {
+            physics.setGravity(new Vector3f(0, -30f, 0));
+        }
         physics.warp(spawnPos);
         node.addControl(physics);
         bulletAppState.getPhysicsSpace().add(physics);
+
+        if (boss) {
+            buildTelegraph();
+        }
     }
 
     public void update(float tpf, Vector3f playerPos, PlayerStats playerStats) {
@@ -350,7 +431,9 @@ public class EnemyController {
         Vector3f toPlayer = new Vector3f(playerPos.x - enemyPos.x, 0f, playerPos.z - enemyPos.z);
         float distToPlayer = toPlayer.length();
 
-        if (distToPlayer < detectionRange) {
+        boolean bossMode = boss && bossSpec != null;
+
+        if (!bossMode && distToPlayer < detectionRange) {
             Vector3f dir = toPlayer;
             if (dir.lengthSquared() > 1e-4f) {
                 physics.setViewDirection(dir.normalizeLocal());
@@ -362,10 +445,11 @@ public class EnemyController {
         float kbMag = knockback.length();
         float kbLinger = FastMath.clamp(knockbackTimer / KNOCKBACK_DURATION, 0f, 1f);
 
-        Vector3f desiredMove = Vector3f.ZERO;
-        if (attacking) {
+        Vector3f desiredMove = new Vector3f();
+        if (bossMode) {
+            desiredMove = updateBoss(tpf, playerPos, enemyPos, toPlayer, distToPlayer, playerStats);
+        } else if (attacking) {
             attackWindupTimer -= tpf;
-            physics.setWalkDirection(knockback);
             if (attackWindupTimer <= 0f) {
                 attacking = false;
                 if (playerStats != null && distToPlayer <= attackRange * 1.1f) {
@@ -402,12 +486,17 @@ public class EnemyController {
             }
         }
 
-        if (!attacking && hitAnimTimer <= 0f) {
+        if (!bossMode && !attacking && hitAnimTimer <= 0f) {
             boolean moving = desiredMove.lengthSquared() > 1e-3f;
             playAnim(moving ? "Move" : "Idle");
         }
 
         physics.setWalkDirection(desiredMove.add(knockback));
+
+        // keep the boss on the combat disc so it never plows into the decor
+        if (bossMode) {
+            clampBossToArena();
+        }
 
         if (kbMag > 0f) {
             knockbackTimer -= tpf;
@@ -417,6 +506,430 @@ public class EnemyController {
         }
 
         refreshHitFlash();
+    }
+
+    // -- boss-fight AI ----------------------------------------------------------
+    // The stage spec picks which attacks exist and how fast they come; this just
+    // runs each attack's windup -> impact/blow -> recovery lifecycle.
+    private Vector3f updateBoss(float tpf, Vector3f playerPos, Vector3f enemyPos,
+                                Vector3f toPlayer, float dist, PlayerStats playerStats) {
+        if (bossSpec == null) return Vector3f.ZERO;
+
+        float[] thresholds = bossSpec.thresholds;
+        float ratio = maxHealth <= 0f ? 0f : health / maxHealth;
+        int nextPhase = 1;
+        for (int i = 0; i < thresholds.length; i++) {
+            if (ratio <= thresholds[i]) nextPhase = i + 2;
+        }
+        // transitions fire exactly once — later phases never re-trigger
+        if (nextPhase > currentBossPhase) {
+            for (int p = currentBossPhase + 1; p <= nextPhase; p++) {
+                firePhaseChange(p);
+            }
+            currentBossPhase = nextPhase;
+        }
+
+        if (bossSpec.summon) {
+            summonTimer -= tpf;
+            summons.removeIf(EnemyController::canRemove);
+        }
+
+        float targetMoveX = 0f;
+        float targetMoveZ = 0f;
+
+        if (phasePause > 0f) {
+            // interlude so the phase shift reads clearly, no pressure on the player
+            phasePause -= tpf;
+            if (phasePause <= 0f) currentAnimState = null;
+            facePlayer(playerPos, enemyPos);
+        } else if (hitAnimTimer > 0f) {
+            facePlayer(playerPos, enemyPos);
+        } else if (recoveryTimer > 0f) {
+            recoveryTimer -= tpf;
+            if (recoveryTimer <= 0f) currentAnimState = null;
+            facePlayer(playerPos, enemyPos);
+        } else if (attackState != BOSS_ATTACK_NONE) {
+            advanceBossAttack(tpf, playerPos, enemyPos, playerStats);
+            Vector3f step = bossChaseStep(toPlayer, 0.35f);
+            if (attackState == BOSS_ATTACK_CHARGE) {
+                if (attackActive) {
+                    float elapsed = bossSpec.chargeDuration - attackTimer;
+                    float rampIn = FastMath.clamp(elapsed / CHARGE_RAMP_IN, 0f, 1f);
+                    float rampOut = FastMath.clamp(attackTimer / CHARGE_RAMP_OUT, 0f, 1f);
+                    float speed = bossSpec.chargeSpeed * bossSpec.chargeMul[phaseIndex()]
+                            * Math.min(rampIn, rampOut);
+                    targetMoveX = chargeDir.x * speed;
+                    targetMoveZ = chargeDir.z * speed;
+                }
+                if (chargeDir.lengthSquared() > 1e-4f) {
+                    physics.setViewDirection(chargeDir);
+                }
+            } else if (attackState == BOSS_ATTACK_MELEE) {
+                // step into the swing during the windup so the lunge keeps its pace
+                targetMoveX = step.x;
+                targetMoveZ = step.z;
+            }
+        } else {
+            if (smashCd > 0f) smashCd -= tpf;
+            if (chargeCd > 0f) chargeCd -= tpf;
+            if (aoeCd > 0f) aoeCd -= tpf;
+
+            facePlayer(playerPos, enemyPos);
+
+            float atkCd = bossSpec.attackCooldown * bossSpec.attackMul[phaseIndex()];
+            boolean near = dist <= bossSpec.meleeRange;
+            boolean wantCharge = bossSpec.charge && !near
+                    && dist >= bossSpec.chargeRange && chargeCd <= 0f;
+            boolean wantSmash = bossSpec.smash && dist <= bossSpec.smashRadius
+                    * bossSpec.radiusMul[phaseIndex()] * 1.2f && smashCd <= 0f;
+            boolean wantAoe = bossSpec.aoe && dist <= bossSpec.aoeRadius
+                    * bossSpec.radiusMul[phaseIndex()] * 1.2f && aoeCd <= 0f;
+
+            if (timeSinceLastAttack >= atkCd) {
+                if (wantCharge) {
+                    startCharge(playerPos, enemyPos);
+                } else if (wantSmash && wantAoe) {
+                    if (smashCd <= aoeCd) startSmash(); else startAoe();
+                } else if (wantSmash) {
+                    startSmash();
+                } else if (wantAoe) {
+                    startAoe();
+                } else if (near) {
+                    startMelee();
+                }
+            }
+
+            if (bossSpec.summon && summonTimer <= 0f
+                    && summons.size() < bossSpec.summonCap) {
+                summonMinions();
+            }
+
+            // chase the player — a step closer only when actually committing to
+            // approach, so the boss slows smoothly instead of stopping cold
+            if (attackState == BOSS_ATTACK_NONE
+                    && toPlayer.lengthSquared() > 1e-4f) {
+                Vector3f move = toPlayer.normalizeLocal();
+                float pace = bossSpec.moveSpeed * bossSpec.moveMul[phaseIndex()];
+                if (near) pace *= 0.35f;
+                pace *= 1f - knockbackLinger() * 0.85f;
+                targetMoveX = move.x * pace;
+                targetMoveZ = move.z * pace;
+            } else {
+                // attack just fired out of a chase — let the eased motion wind down
+                targetMoveX = 0f;
+                targetMoveZ = 0f;
+            }
+        }
+
+        // ease the horizontal move so starts, stops and turns never snap
+        float k = 1f - FastMath.exp(-BOSS_MOVE_SMOOTH_RATE * tpf);
+        moveSmooth.x += (targetMoveX - moveSmooth.x) * k;
+        moveSmooth.z += (targetMoveZ - moveSmooth.z) * k;
+
+        // flyers steer altitude with an eased velocity: no gravity, no snap, the
+        // hover height is a target, not a teleport
+        float ySpeed = 0f;
+        if (bossSpec.hoverHeight > 0f) {
+            float err = flightTargetY - enemyPos.y;
+            float desiredVy = FastMath.clamp(err * ALTITUDE_GAIN,
+                    -ALTITUDE_MAX_SPEED, ALTITUDE_MAX_SPEED);
+            altVy += (desiredVy - altVy) * Math.min(1f, ALTITUDE_EASE * tpf);
+            if (FastMath.abs(err) < 0.08f && FastMath.abs(altVy) < 0.2f) {
+                altVy = 0f; // settle cleanly on the hover height, no residual bob
+            }
+            ySpeed = altVy;
+        }
+
+        resolveBossLocomotion(moveSmooth.length());
+
+        return new Vector3f(moveSmooth.x, ySpeed, moveSmooth.z);
+    }
+
+    /** Small aimed step used during melee windups so the boss commits to the lunge. */
+    private Vector3f bossChaseStep(Vector3f toPlayer, float factor) {
+        if (toPlayer.lengthSquared() <= 1e-4f) return Vector3f.ZERO;
+        return toPlayer.normalizeLocal().multLocal(
+                bossSpec.moveSpeed * bossSpec.moveMul[phaseIndex()] * factor);
+    }
+
+    /** Move/Idle only outside attacks, pauses and flinches; hysteresis kills flicker. */
+    private void resolveBossLocomotion(float speed) {
+        if (phasePause > 0f || hitAnimTimer > 0f || recoveryTimer > 0f
+                || attackState != BOSS_ATTACK_NONE) return;
+        boolean moving = wasMoving
+                ? speed > CHASE_IDLE_THRESHOLD
+                : speed > CHASE_MOVE_THRESHOLD;
+        if (moving != wasMoving) {
+            playAnim(moving ? "Move" : "Idle");
+            wasMoving = moving;
+        }
+    }
+
+    private void firePhaseChange(int phase) {
+        attackState = BOSS_ATTACK_NONE;
+        hideTelegraph();
+        recoveryTimer = 0f;
+        phasePause = 1.1f;
+        if (bossId != null) SoundManager.playBossRoar(bossId);
+        playAnim("Roar");
+        // summoning bosses bring backup with the shift
+        if (phase >= 2 && bossSpec.summon && summoner != null) {
+            summonMinions();
+        }
+    }
+
+    private void summonMinions() {
+        summonTimer = bossSpec.summonInterval;
+        if (summoner == null) return;
+        List<EnemyController> spawned = summoner.apply(bossSpec.summonCount);
+        if (spawned != null) {
+            summons.addAll(spawned);
+        }
+        SoundManager.playEnemyAttack();
+    }
+
+    private void startMelee() {
+        attackState = BOSS_ATTACK_MELEE;
+        attackActive = false;
+        attackTimer = ATTACK_TELEGRAPH_DURATION;
+        timeSinceLastAttack = 0f;
+        playAnim("Attack");
+        playBossAttackSound();
+    }
+
+    private void startSmash() {
+        attackState = BOSS_ATTACK_SMASH;
+        attackActive = false;
+        attackTimer = bossSpec.smashWindup;
+        timeSinceLastAttack = 0f;
+        smashCd = bossSpec.smashCooldown * bossSpec.smashMul[phaseIndex()];
+        playAnim("Smash");
+        playBossAttackSound();
+        // flying slammers dip for the impact, then rise again after the recovery
+        if (bossSpec.hoverHeight > 0f) flightTargetY = 1.2f;
+        showTelegraphAt(node.getWorldTranslation(),
+                bossSpec.smashRadius * bossSpec.radiusMul[phaseIndex()]);
+    }
+
+    private void startCharge(Vector3f playerPos, Vector3f enemyPos) {
+        attackState = BOSS_ATTACK_CHARGE;
+        attackActive = false;
+        attackTimer = bossSpec.chargeWindup;
+        chargeHitDone = false;
+        timeSinceLastAttack = 0f;
+        chargeCd = bossSpec.chargeCooldown * bossSpec.chargeMul[phaseIndex()];
+        Vector3f d = new Vector3f(playerPos.x - enemyPos.x, 0f, playerPos.z - enemyPos.z);
+        if (d.lengthSquared() < 1e-4f) d.set(0f, 0f, -1f);
+        chargeDir.set(d.normalizeLocal());
+        physics.setViewDirection(chargeDir);
+        playAnim("Charge");
+        if (animComposer != null) {
+            // rooted aim pose while the lunge is telegraphed, full sprint when it fires
+            animComposer.setGlobalSpeed(0.45f);
+        }
+        playBossAttackSound();
+    }
+
+    private void startAoe() {
+        attackState = BOSS_ATTACK_AOE;
+        attackActive = false;
+        attackTimer = bossSpec.aoeWindup;
+        timeSinceLastAttack = 0f;
+        aoeCd = bossSpec.aoeCooldown * bossSpec.aoeMul[phaseIndex()];
+        playAnim("Aoe");
+        playBossAttackSound();
+        showTelegraphAt(node.getWorldTranslation(), 0.2f * bossSpec.aoeRadius);
+    }
+
+    private void advanceBossAttack(float tpf, Vector3f playerPos, Vector3f enemyPos,
+                                   PlayerStats playerStats) {
+        switch (attackState) {
+            case BOSS_ATTACK_MELEE, BOSS_ATTACK_SMASH, BOSS_ATTACK_AOE -> {
+                attackTimer -= tpf;
+                if (attackTimer <= 0f) {
+                    if (attackState == BOSS_ATTACK_AOE) {
+                        float p = 0f;
+                        updateTelegraph(bossSpec.aoeRadius
+                                * bossSpec.radiusMul[phaseIndex()] * 0.2f);
+                        doAoe(playerPos, enemyPos, playerStats);
+                        hideTelegraph();
+                        endBossAttack(bossSpec.aoeRecovery);
+                    } else if (attackState == BOSS_ATTACK_SMASH) {
+                        doSmashImpact(playerPos, enemyPos, playerStats);
+                        hideTelegraph();
+                        endBossAttack(bossSpec.smashRecovery);
+                    } else {
+                        if (playerWithinRadius(bossSpec.meleeRange * 1.1f, playerPos, enemyPos)) {
+                            dealBossDamage(playerStats, damage);
+                        }
+                        endBossAttack(bossSpec.recovery);
+                    }
+                } else if (attackState == BOSS_ATTACK_AOE) {
+                    float p = 1f - FastMath.clamp(attackTimer / Math.max(0.001f, bossSpec.aoeWindup),
+                            0f, 1f);
+                    updateTelegraph(bossSpec.aoeRadius
+                            * bossSpec.radiusMul[phaseIndex()] * (0.2f + 0.8f * p));
+                }
+            }
+            case BOSS_ATTACK_CHARGE -> {
+                if (!attackActive) {
+                    // windup: aim at the frozen target direction, hold still
+                    attackTimer -= tpf;
+                    physics.setViewDirection(chargeDir);
+                    if (attackTimer <= 0f) {
+                        attackActive = true;
+                        attackTimer = bossSpec.chargeDuration;
+                        if (animComposer != null) {
+                            float animScale = FastMath.clamp(
+                                    bossSpec.chargeSpeed * MOVE_ANIM_SPEED_PER_UNIT,
+                                    MOVE_ANIM_MIN_SPEED, MOVE_ANIM_MAX_SPEED);
+                            animComposer.setGlobalSpeed(animScale);
+                        }
+                    }
+                } else {
+                    attackTimer -= tpf;
+                    if (!chargeHitDone
+                            && playerWithinRadius(bossSpec.chargeHitRadius, playerPos, enemyPos)) {
+                        chargeHitDone = true;
+                        dealBossDamage(playerStats, bossSpec.chargeDamage * bossLoopScalar);
+                    }
+                    if (attackTimer <= 0f) {
+                        attackActive = false;
+                        endBossAttack(bossSpec.chargeRecovery);
+                    }
+                }
+            }
+            default -> {
+            }
+        }
+    }
+
+    private void endBossAttack(float recovery) {
+        attackState = BOSS_ATTACK_NONE;
+        attackActive = false;
+        recoveryTimer = recovery;
+        if (bossSpec.hoverHeight > 0f) {
+            flightTargetY = bossSpec.hoverHeight;
+        }
+        playAnim("Idle");
+    }
+
+    private void doSmashImpact(Vector3f playerPos, Vector3f enemyPos, PlayerStats playerStats) {
+        float radius = bossSpec.smashRadius * bossSpec.radiusMul[phaseIndex()];
+        if (playerWithinRadius(radius, playerPos, enemyPos)) {
+            dealBossDamage(playerStats, bossSpec.smashDamage * bossLoopScalar);
+        }
+        impactBurst(radius);
+    }
+
+    private void doAoe(Vector3f playerPos, Vector3f enemyPos, PlayerStats playerStats) {
+        float radius = bossSpec.aoeRadius * bossSpec.radiusMul[phaseIndex()];
+        if (playerWithinRadius(radius, playerPos, enemyPos)) {
+            dealBossDamage(playerStats, bossSpec.aoeDamage * bossLoopScalar);
+        }
+        impactBurst(radius);
+    }
+
+    private void dealBossDamage(PlayerStats playerStats, float amount) {
+        if (playerStats == null || amount <= 0f) return;
+        playerStats.damage(amount);
+        if (bossId != null) SoundManager.playBossDamageDeal(bossId);
+        if (slowOnHit > 0f) {
+            playerStats.applySlow(0.35f, slowOnHit);
+        }
+    }
+
+    private boolean playerWithinRadius(float radius, Vector3f playerPos, Vector3f enemyPos) {
+        float dx = playerPos.x - enemyPos.x;
+        float dz = playerPos.z - enemyPos.z;
+        return dx * dx + dz * dz <= radius * radius;
+    }
+
+    private void facePlayer(Vector3f playerPos, Vector3f enemyPos) {
+        Vector3f dir = new Vector3f(playerPos.x - enemyPos.x, 0f, playerPos.z - enemyPos.z);
+        if (dir.lengthSquared() > 1e-4f) {
+            physics.setViewDirection(dir.normalizeLocal());
+        }
+    }
+
+    private void impactBurst(float radius) {
+        Vector3f ground = node.getWorldTranslation();
+        ground.y = 0.4f;
+        deathEmitter.setLocalTranslation(ground);
+        deathEmitter.setEnabled(true);
+        deathEmitter.emitAllParticles();
+    }
+
+    private void buildTelegraph() {
+        try {
+            com.jme3.scene.shape.Cylinder mesh =
+                    new com.jme3.scene.shape.Cylinder(2, 40, 1f, 0.02f, true);
+            telegraphGeo = new Geometry("BossTelegraph", mesh);
+            telegraphMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
+            telegraphMat.setColor("Color", new ColorRGBA(1f, 0.15f, 0.1f, 0.5f));
+            telegraphMat.getAdditionalRenderState().setFaceCullMode(
+                    com.jme3.material.RenderState.FaceCullMode.Off);
+            telegraphMat.getAdditionalRenderState().setBlendMode(
+                    com.jme3.material.RenderState.BlendMode.Alpha);
+            telegraphGeo.setMaterial(telegraphMat);
+            telegraphGeo.rotate(FastMath.HALF_PI, 0f, 0f);
+            telegraphGeo.setLocalScale(0.01f, 0.01f, 1f);
+            telegraphGeo.setCullHint(Spatial.CullHint.Always);
+            parentNode.attachChild(telegraphGeo);
+        } catch (RuntimeException ex) {
+            System.err.println("EnemyController: telegraph unavailable: " + ex.getMessage());
+            telegraphGeo = null;
+        }
+    }
+
+    private void showTelegraphAt(Vector3f center, float radius) {
+        if (telegraphGeo == null) return;
+        // the unit circle lives in the mesh's X/Y plane; both get scaled so the
+        // ground marker stays a true circle matching the smash/aoe hit radius
+        telegraphGeo.setLocalScale(radius, radius, 1f);
+        telegraphGeo.setLocalTranslation(center.x, 0.08f, center.z);
+        telegraphGeo.setCullHint(Spatial.CullHint.Never);
+    }
+
+    private void updateTelegraph(float radius) {
+        if (telegraphGeo == null) return;
+        telegraphGeo.setLocalScale(radius, radius, 1f);
+        telegraphGeo.setCullHint(Spatial.CullHint.Never);
+    }
+
+    private void hideTelegraph() {
+        if (telegraphGeo != null) {
+            telegraphGeo.setCullHint(Spatial.CullHint.Always);
+        }
+    }
+
+    private void clampBossToArena() {
+        Vector3f p = node.getWorldTranslation();
+        float rad = bossSpec.arenaRadius;
+        if (p.x * p.x + p.z * p.z > rad * rad) {
+            Vector3f clamped = new Vector3f(p.x, 0f, p.z).normalizeLocal().multLocal(rad);
+            clamped.y = p.y;
+            node.setLocalTranslation(clamped);
+            physics.warp(clamped);
+        }
+    }
+
+    private int phaseIndex() {
+        return Math.min(currentBossPhase - 1, 2);
+    }
+
+    private float knockbackLinger() {
+        return FastMath.clamp(knockbackTimer / KNOCKBACK_DURATION, 0f, 1f);
+    }
+
+    private void playBossAttackSound() {
+        if (bossId != null) SoundManager.playBossAttack(bossId);
+        else SoundManager.playEnemyAttack();
+    }
+
+    /** Boss arenas call this so the boss can drag biome minions onto the fight. */
+    public void setSummoner(Function<Integer, List<EnemyController>> summoner) {
+        this.summoner = summoner;
     }
 
     private void refreshHitFlash() {
@@ -499,10 +1012,15 @@ public class EnemyController {
         }
     }
 
-    /** Impulse away from the attacker plus a small vertical hop; fades over KNOCKBACK_DURATION. */
+    /** Impulse away from the attacker plus a small vertical hop; fades over KNOCKBACK_DURATION.
+     *  Flyers stay airborne — horizontal shove only, or a hit would whip them up and down. */
     public void applyKnockback(Vector3f awayDir, float force) {
         if (dead) return;
-        knockback.set(awayDir.x * force, force * 0.5f, awayDir.z * force);
+        if (bossSpec != null && bossSpec.hoverHeight > 0f) {
+            knockback.set(awayDir.x * force, 0f, awayDir.z * force);
+        } else {
+            knockback.set(awayDir.x * force, force * 0.5f, awayDir.z * force);
+        }
         knockbackTimer = KNOCKBACK_DURATION;
     }
 
@@ -541,6 +1059,10 @@ public class EnemyController {
             case "Idle" -> idleClip;
             case "Move" -> runClip != null ? runClip : walkClip;
             case "Attack" -> attackClip;
+            case "Smash" -> smashClip;
+            case "Charge" -> chargeClip;
+            case "Aoe" -> aoeClip;
+            case "Roar" -> roarClip;
             case "Hit" -> hitClip;
             case "Death" -> deathClip;
             default -> null;
@@ -552,8 +1074,10 @@ public class EnemyController {
         }
         animComposer.setCurrentAction(clip);
         currentAnimState = category;
-        if ("Move".equals(category)) {
-            float animScale = FastMath.clamp(moveSpeed * MOVE_ANIM_SPEED_PER_UNIT,
+        if ("Move".equals(category) || "Charge".equals(category)) {
+            float pace = "Charge".equals(category) && bossSpec != null
+                    ? bossSpec.chargeSpeed : moveSpeed;
+            float animScale = FastMath.clamp(pace * MOVE_ANIM_SPEED_PER_UNIT,
                     MOVE_ANIM_MIN_SPEED, MOVE_ANIM_MAX_SPEED);
             animComposer.setGlobalSpeed(animScale);
         } else {
@@ -808,4 +1332,5 @@ public class EnemyController {
 
     /** Arena bosses are one-of-a-kind — the manager gives extra reward for them. */
     public boolean isBoss() { return boss; }
+    public int getTier() { return tier; }
 }

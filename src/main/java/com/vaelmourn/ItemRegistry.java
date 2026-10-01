@@ -64,40 +64,32 @@ public final class ItemRegistry {
                 5, 25, null, null, "Opens the boss chamber door."));
 
         add(material("soul_dust", "Soul Dust", new ColorRGBA(0.6f, 0.9f, 1.0f, 1f), 1, null,
-                "Currency left behind by fallen enemies.", 1));
-        add(material("iron_ingot", "Iron Ingot", new ColorRGBA(0.6f, 0.65f, 0.7f, 1f), 3,
-                "Textures/Items/iron_ingot.png", "Smelted iron, ready to forge.", 1));
-        add(material("iron_ore", "Iron Ore", new ColorRGBA(0.55f, 0.5f, 0.45f, 1f), 2,
-                "Textures/Items/iron_ingot.png", "Raw ore from the mines. Basic crafting material.", 1));
-        add(material("leather", "Leather", new ColorRGBA(0.55f, 0.4f, 0.3f, 1f), 2,
-                "Textures/Items/leather.png", "Tanned hide, used in light gear.", 1));
-        add(material("blood_shard", "Blood Shard", new ColorRGBA(0.85f, 0.15f, 0.15f, 1f), 12,
-                null, "A piece of something old and thirsty. Rare upgrade material.", 2));
-        add(material("void_crystal", "Void Crystal", new ColorRGBA(0.35f, 0.2f, 0.7f, 1f), 25,
-                null, "Pure condensed darkness. Very rare upgrade material.", 3));
-        add(material("wolf_fang", "Wolf Fang", new ColorRGBA(0.85f, 0.85f, 0.9f, 1f), 10,
-                null, "A sharp fang tied to speed and attack upgrades.", 2));
-        add(material("ember_core", "Ember Core", new ColorRGBA(1f, 0.45f, 0.1f, 1f), 15,
-                null, "A core that still glows with heat. Tied to fire and damage upgrades.", 2));
+                "Currency left behind by fallen enemies."));
 
-        add(equipment("iron_helmet", "Iron Helmet", Item.Category.HELMET,
-                new ColorRGBA(0.62f, 0.66f, 0.72f, 1f), 45,
-                "Textures/Items/iron_helmet.png", "Steel headguard. Boosts defense.", 8f, 0f));
-        add(equipment("iron_chestplate", "Iron Chestplate", Item.Category.CHESTPLATE,
-                new ColorRGBA(0.62f, 0.66f, 0.72f, 1f), 65,
-                "Textures/Items/iron_chestplate.png", "Heavy plate. Stronger defense boost.", 14f, 0f));
-        add(equipment("iron_leggings", "Iron Leggings", Item.Category.LEGGINGS,
-                new ColorRGBA(0.62f, 0.66f, 0.72f, 1f), 55,
-                null, "Articulated greaves. Small movement-speed bonus.", 0f, 0.6f));
-        add(equipment("iron_boots", "Iron Boots", Item.Category.BOOTS,
-                new ColorRGBA(0.62f, 0.66f, 0.72f, 1f), 45,
-                "Textures/Items/iron_boot.png", "Sturdy sabatons. Larger movement-speed bonus.", 0f, 1.2f));
+        // ---- biome gems -------------------------------------------------------
+        // One unique, non-stackable gem per biome arc. Registered straight from the
+        // progression table so the item id, the model and the biome never drift apart.
+        // They live in the KEY group (never consumed as potions), keep maxStack 1 so a
+        // second copy can never stack in the grid, and have no icon texture — the HUD
+        // falls back to the per-biome colour, which is also the tint the dropped
+        // model is rendered with.
+        for (GemProgression.Gem gem : GemProgression.GEMS) {
+            add(new Item(gem.id, gem.name, Item.Category.KEY, gem.color,
+                    1, 0, gem.modelPath, null,
+                    "Required to challenge the " + gem.bossName + " in the "
+                            + gem.biomeName + ". Lost if your run ends."));
+        }
+
+        // The four iron armour pieces (helmet/chestplate/leggings/boots) were removed
+        // along with the armour tier/material system. Defense is now a Sanctuary run
+        // stat upgrade instead of equipment, so nothing registers defensive gear here.
+        // The equipment() helper is kept because kite_shield still uses a shield slot.
     }
 
     private static Item material(String id, String name, ColorRGBA color, int value,
-                                 String icon, String desc, int tier) {
+                                 String icon, String desc) {
         return new Item(id, name, Item.Category.MATERIAL, color, 99, value,
-                null, icon, desc, Item.Effect.NONE, 0f, 0f, 0f, 0f, tier);
+                null, icon, desc, Item.Effect.NONE, 0f, 0f, 0f, 0f, 0);
     }
 
     /** Equipment: unique (max stack 1) and carries defense/move-speed bonuses. */

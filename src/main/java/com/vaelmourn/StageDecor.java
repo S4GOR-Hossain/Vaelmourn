@@ -14,16 +14,80 @@ import com.jme3.scene.Spatial;
 import com.jme3.scene.VertexBuffer;
 import com.jme3.util.BufferUtils;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 /**
  * Shared helpers for building scenery with collision — the tree-ring and ice-spike
  * recipes used by the boss arenas (and the biome stages needing the same tricks).
+ * Assets are loaded once into a template cache and clone()d per placement so the
+ * packs never re-parse the same model dozens of times a second.
  */
 public final class StageDecor {
 
+    private static final Map<String, Spatial> MODEL_CACHE = new HashMap<>();
+
     private StageDecor() {
+    }
+
+    /** Load a model once; later placements clone() the cached template (shared mesh/material). */
+    public static Spatial loadCached(AssetManager assetManager, String path) {
+        return MODEL_CACHE.computeIfAbsent(path, assetManager::loadModel);
+    }
+
+    /**
+     * How far a spatial's lowest point sits above its own origin, in the spatial's own
+     * scaled/rotated space. Translating the spatial by +this value puts its base exactly
+     * on its parent's origin.
+     *
+     * <p>Must be measured while the spatial is still DETACHED. {@code getWorldBound()}
+     * folds in the whole parent chain's transform, so measuring after attaching to an
+     * already-translated parent (the chest node sits at y=0.6) shifts the answer by that
+     * parent's Y and the model ends up buried or floating.</p>
+     */
+    public static float baseLift(Spatial s) {
+        s.updateModelBound();
+        if (s.getWorldBound() instanceof BoundingBox bbox) {
+            return bbox.getExtent(new Vector3f()).y - bbox.getCenter(new Vector3f()).y;
+        }
+        return 0f;
+    }
+
+    /**
+     * Clone a cached pack asset, ground it, scatter-rotate it and attach it to the
+     * parent. The lift logic measures how far above the origin the model's base is,
+     * so both base-pivot (KayKit) and center-pivot (legacy Forest glb) packs sit flat.
+     */
+    public static Spatial placeFlat(Node parent, AssetManager assetManager, String path,
+                                    float x, float z, float scale, Random rand) {
+        Spatial s = loadCached(assetManager, path).clone();
+        s.setLocalScale(scale);
+        s.rotate(0f, rand.nextFloat() * FastMath.TWO_PI, 0f);
+        s.setLocalTranslation(x, baseLift(s), z);
+        parent.attachChild(s);
+        return s;
+    }
+
+    /** Static box collider so the player (and foes) can't walk through a big prop. */
+    public static void addBlocker(BulletAppState bulletAppState,
+                                  List<RigidBodyControl> physicsOut,
+                                  float x, float z, float halfX, float halfY, float halfZ) {
+        BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(halfX, halfY, halfZ));
+        RigidBodyControl physics = new RigidBodyControl(shape, 0);
+        physics.setPhysicsLocation(new Vector3f(x, halfY, z));
+        bulletAppState.getPhysicsSpace().add(physics);
+        physicsOut.add(physics);
+    }
+
+    /** Height of a placed clone in world units (translation-independent), for collider sizing. */
+    public static float boundHeight(Spatial s, float fallback) {
+        s.updateModelBound();
+        if (s.getWorldBound() instanceof BoundingBox bbox) {
+            return bbox.getExtent(new Vector3f()).y;
+        }
+        return fallback;
     }
 
     public static void addTreeWithHitbox(AssetManager assetManager, Node parent,
@@ -31,24 +95,21 @@ public final class StageDecor {
                                          List<RigidBodyControl> physicsOut,
                                          String[] models, Random rand, float x, float z) {
         String model = models[rand.nextInt(models.length)];
-        Spatial tree = assetManager.loadModel(model);
-        tree.rotate(0, rand.nextFloat() * FastMath.TWO_PI, 0);
-        tree.setLocalScale(4.2f + rand.nextFloat() * 1.1f);
-
-        // the pack pivots on the model's vertical center — lift it so the base
-        // sits on the ground instead of half-burying it
+        Spatial tree = placeFlat(parent, assetManager, model, x, z,
+                4.2f + rand.nextFloat() * 1.1f, rand);
         tree.updateModelBound();
-        float lift = 2f;
+
+        float trunkRadius = 0.9f;
+        float collar = 3f;
         if (tree.getWorldBound() instanceof BoundingBox bbox) {
             Vector3f extent = bbox.getExtent(new Vector3f());
-            lift = extent.y - bbox.getCenter().y;
+            trunkRadius = FastMath.clamp(Math.max(extent.x, extent.z) * 0.35f, 0.8f, 1.8f);
+            collar = FastMath.clamp(Math.min(extent.y, 9f), 3f, 9f);
         }
-        tree.setLocalTranslation(x, lift, z);
-        parent.attachChild(tree);
-
-        BoxCollisionShape trunk = new BoxCollisionShape(new Vector3f(0.9f, 3f, 0.9f));
+        BoxCollisionShape trunk = new BoxCollisionShape(
+                new Vector3f(trunkRadius, collar * 0.6f, trunkRadius));
         RigidBodyControl physics = new RigidBodyControl(trunk, 0);
-        physics.setPhysicsLocation(new Vector3f(x, 3f, z));
+        physics.setPhysicsLocation(new Vector3f(x, collar * 0.6f, z));
         bulletAppState.getPhysicsSpace().add(physics);
         physicsOut.add(physics);
     }

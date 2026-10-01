@@ -50,6 +50,7 @@ public class SoundManager {
 
     private float attackSoundCooldown = 0f;
     private float hitSoundCooldown = 0f;
+    private float bossHurtCooldown = 0f;
     private final float[] npcCooldown = new float[3];
 
     private Stage lastStage;
@@ -91,6 +92,7 @@ public class SoundManager {
 
         if (attackSoundCooldown > 0f) attackSoundCooldown -= tpf;
         if (hitSoundCooldown > 0f) hitSoundCooldown -= tpf;
+        if (bossHurtCooldown > 0f) bossHurtCooldown -= tpf;
         if (roarTimer > 0f) {
             roarTimer -= tpf;
             if (roarTimer <= 0f) maybeRoar();
@@ -247,8 +249,20 @@ public class SoundManager {
 
     public static void playBossHurt(String id) {
         if (inst == null) return;
+        if (inst.bossHurtCooldown > 0f) return;
+        inst.bossHurtCooldown = 0.14f;
         BossSounds s = soundsFor(id);
         if (s != null && s.hurt != null) inst.play(s.hurt, 0.85f);
+    }
+
+    /** Immediate roar (phase transitions); also pushes ambient roars well back. */
+    public static void playBossRoar(String id) {
+        if (inst == null) return;
+        BossSounds s = soundsFor(id);
+        if (s != null && s.roars != null && s.roars.length > 0) {
+            inst.play(s.roars[RNG.nextInt(s.roars.length)], 0.9f);
+        }
+        inst.roarTimer = Math.max(inst.roarTimer, 10f + RNG.nextFloat() * 6f);
     }
 
     public static void playBossDamageDeal(String id) {

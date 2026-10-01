@@ -44,4 +44,17 @@ public interface Stage {
     default boolean isSafe() {
         return false;
     }
+
+    /**
+     * Where the exit portal should stand. The portal is a flat oval whose base sits at
+     * the local origin, so the returned y is the ground it rests on and the manager
+     * raises it by {@code PORTAL_BASE_HEIGHT}.
+     *
+     * <p>Default suits flat stages. Stages built on a height field must override this
+     * and return the sampled terrain height, otherwise the portal is buried in high
+     * ground or floating over dips.</p>
+     */
+    default Vector3f getExitPortalGround() {
+        return new Vector3f(0f, 0f, 25f);
+    }
 }

@@ -22,6 +22,14 @@ public class PlayerStats {
     private float maxHealth = 100f;
     private float health = maxHealth;
 
+    /**
+     * While true, {@link #damage(float)} is a no-op. Owned here rather than on the
+     * player controller because this class is the single choke point every attack in the
+     * game funnels through, so one guard covers enemy melee and all four boss attacks
+     * without any of them needing to know a dodge happened.
+     */
+    private boolean invulnerable = false;
+
     // kept for future abilities; no spells consume it yet
     private float maxMana = 100f;
     private float mana = maxMana;
@@ -44,6 +52,13 @@ public class PlayerStats {
     // equipment bonuses are read live, never stacked
     private Inventory inventory;
 
+    // ---- Sanctuary upgrade state (run-scoped) --------------------------------
+    // Authoritative sources live in these two objects; PlayerStats only reads their
+    // multipliers so there is exactly one place that decides a level's effect.
+    // Both are reset by the new-run path, never persisted.
+    private final RunUpgrades runUpgrades = new RunUpgrades();
+    private final PotionUpgrades potionUpgrades = new PotionUpgrades();
+
     private float speedPower = 0f, speedTime = 0f, speedDuration = 0f;
     private float strengthPower = 0f, strengthTime = 0f, strengthDuration = 0f;
     private float critPower = 0f, critTime = 0f, critDuration = 0f;
@@ -63,17 +78,41 @@ public class PlayerStats {
     public int getLevel() { return level; }
     public float getExperience() { return experience; }
     public float getExperienceToNext() { return experienceToNext; }
-    public int getSoulDust() { return soulDust; }
+    public float getSoulDust() { return soulDust; }
     public String getPlayerName() { return playerName; }
+
+    /** Run-upgrade state (Attack/Speed/Defense/Jump/Luck). Owned here so the UI and the
+     *  stat maths can never disagree about what the player has bought. */
+    public RunUpgrades getRunUpgrades() { return runUpgrades; }
+
+    /** Potion upgrade levels. Owned here for the same reason. */
+    public PotionUpgrades getPotionUpgrades() { return potionUpgrades; }
+
+    /**
+     * Resets both upgrade tracks. Called from the new-run path alongside
+     * {@link #resetToDefaults()} so a fresh run starts every stat at level 1 and every
+     * potion at level 1. Kept separate from resetToDefaults so that method stays the
+     * single place that restores raw base values.
+     */
+    public void resetUpgrades() {
+        runUpgrades.reset();
+        potionUpgrades.reset();
+    }
 
     /** Armor point total; raises the flat damage-reduction curve (100/(100+armor)). */
     public float getArmorPoints() {
-        return baseArmor + defenseFromEquipment();
+        // Defense run-upgrade scales the armor total itself, so it flows through the
+        // project's existing 100/(100+armor) mitigation curve rather than introducing
+        // a second damage-reduction formula.
+        return runUpgrades.apply(RunUpgrades.Stat.DEFENSE, baseArmor + defenseFromEquipment());
     }
 
-    /** Movement speed; leggings/boots add flat, speed potion adds a %, slow debuff removes one. */
+    /** Movement speed; equipment adds flat, speed potion adds a %, slow debuff removes
+     *  one, and the Speed run-upgrade scales the whole result. */
     public float getMovementSpeed() {
-        return (baseMoveSpeed + moveSpeedFromEquipment()) * (1f + speedPower) * getSlowMultiplier();
+        float withEquipment = baseMoveSpeed + moveSpeedFromEquipment();
+        return runUpgrades.apply(RunUpgrades.Stat.SPEED, withEquipment)
+                * (1f + speedPower) * getSlowMultiplier();
     }
 
     public float getSlowMultiplier() {
@@ -96,6 +135,15 @@ public class PlayerStats {
 
     public float getDamageMultiplier() {
         return 1f + strengthPower;
+    }
+
+    /**
+     * Luck run-upgrade multiplier. Exposed so the one centralized reward path
+     * ({@code StageManager}'s soul-dust payout) can read it — there is no other luck
+     * calculation in the project, so this stays the single source.
+     */
+    public float getLuckMultiplier() {
+        return runUpgrades.getMultiplier(RunUpgrades.Stat.LUCK);
     }
 
     public float getCritChance() {
@@ -145,6 +193,7 @@ public class PlayerStats {
     public void resetToDefaults() {
         maxHealth = 100f;
         health = maxHealth;
+        invulnerable = false;
         maxMana = 100f;
         mana = maxMana;
 
@@ -176,6 +225,10 @@ public class PlayerStats {
 
     public void damage(float amount) {
         if (amount <= 0f) return;
+        // Full immunity during a dodge roll. Returning before the mitigation math and
+        // before the damageListener call means a dodged hit also skips the hurt flash,
+        // the hurt sound and the death check — the hit is treated as never having landed.
+        if (invulnerable) return;
         // flat mitigation curve: 100/(100+armor) of the hit gets through
         float mitigated = amount * (100f / (100f + getArmorPoints()));
         float before = health;
@@ -185,6 +238,10 @@ public class PlayerStats {
         }
     }
 
+    public void setInvulnerable(boolean invulnerable) {
+        this.invulnerable = invulnerable;
+    }
+
     public void heal(float amount) {
         setHealth(health + amount);
     }
@@ -192,28 +249,32 @@ public class PlayerStats {
     /** True if the item was actually consumed (any non-NONE effect), false for keys/materials. */
     public boolean consume(Item item) {
         if (item == null) return false;
+        // every effect below is scaled by the potion's upgrade level, so a bottle bought
+        // at level 3 is immediately stronger than the same item at level 1. The rule
+        // lives in PotionUpgrades; this is the single place it is applied.
+        float power = potionUpgrades.effectivePower(item.id, item.power);
         switch (item.effect) {
             case HEAL_INSTANT:
-                heal(item.power);
+                heal(power);
                 return true;
             case REGEN:
-                regenRate = item.power;
+                regenRate = power;
                 regenTime = item.duration;
                 regenDuration = item.duration;
                 regenAccum = 0f;
                 return true;
             case SPEED:
-                speedPower = item.power;
+                speedPower = power;
                 speedTime = item.duration;
                 speedDuration = item.duration;
                 return true;
             case STRENGTH:
-                strengthPower = item.power;
+                strengthPower = power;
                 strengthTime = item.duration;
                 strengthDuration = item.duration;
                 return true;
             case CRIT:
-                critPower = item.power;
+                critPower = power;
                 critTime = item.duration;
                 critDuration = item.duration;
                 return true;
@@ -222,9 +283,14 @@ public class PlayerStats {
         }
     }
 
-    /** Strength multiplier first, then a crit check (if it procs it replaces that hit's value). */
+    /** Strength multiplier first, then the Attack run-upgrade, then a crit check
+     *  (if it procs it replaces that hit's value). */
     public float rollFinalDamage(float baseDamage) {
         float dmg = baseDamage * getDamageMultiplier();
+        // Attack run-upgrade scales the weapon's damage through the existing
+        // finalizeDamage path, so every weapon/attack benefits without a second
+        // damage formula existing anywhere.
+        dmg *= runUpgrades.getMultiplier(RunUpgrades.Stat.ATTACK);
         if (random.nextFloat() < getCritChance()) {
             dmg *= CRIT_MULTIPLIER;
         }

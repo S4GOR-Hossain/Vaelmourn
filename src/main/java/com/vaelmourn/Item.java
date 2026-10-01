@@ -7,16 +7,19 @@ import com.jme3.math.ColorRGBA;
  */
 public class Item {
 
+    /**
+     * Item categories.
+     *
+     * <p>HELMET/CHESTPLATE/LEGGINGS/BOOTS were removed with the armour tier and
+     * material system. No item registers them, so leaving them would create
+     * unreachable branches in the equip/drop/silhouette switches. SHIELD remains.</p>
+     */
     public enum Category {
         WEAPON,
         CONSUMABLE,
         KEY,
         MATERIAL,
-        HELMET,
-        CHESTPLATE,
-        LEGGINGS,
-        SHIELD,
-        BOOTS
+        SHIELD
     }
 
     /** Coarse bucket every category maps into, so generic systems can ask "is this a consumable?" without knowing every specific sub-category. */
@@ -55,7 +58,6 @@ public class Item {
     public final float defenseBonus;
     public final float moveSpeedBonus;
 
-    // materials rank so a future Forge can gate recipes by rarity
     public final int materialTier;   // 0 = not a material, 1 basic ... 3/4 rare/epic
 
     public Item(String id, String name, Category category, ColorRGBA iconColor,
@@ -86,7 +88,7 @@ public class Item {
             case CONSUMABLE -> Group.CONSUMABLE;
             case KEY -> Group.KEY;
             case MATERIAL -> Group.MATERIAL;
-            case HELMET, CHESTPLATE, LEGGINGS, SHIELD, BOOTS -> Group.EQUIPMENT;
+            case SHIELD -> Group.EQUIPMENT;
         };
     }
 

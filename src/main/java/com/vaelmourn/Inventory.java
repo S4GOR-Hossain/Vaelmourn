@@ -6,20 +6,21 @@ public class Inventory {
     public static final int GRID_ROWS = 5;
     public static final int GRID_SIZE = GRID_COLS * GRID_ROWS;
 
+    /**
+     * Equipment slots.
+     *
+     * <p>Reduced to SHIELD only. The helmet/chestplate/leggings/boots slots went away
+     * with the armour tier/material system — Defense is now a Sanctuary run upgrade
+     * rather than equipment, so those four slots had nothing that could ever occupy
+     * them. The SHIELD slot stays because kite_shield is a real, usable item and its
+     * block is a combat mechanic rather than a passive stat.</p>
+     */
     public enum EquipSlot {
-        HELMET,
-        CHESTPLATE,
-        LEGGINGS,
-        SHIELD,
-        BOOTS
+        SHIELD
     }
 
     public static final EquipSlot[] EQUIPMENT_SLOTS = {
-            EquipSlot.HELMET,
-            EquipSlot.CHESTPLATE,
-            EquipSlot.LEGGINGS,
-            EquipSlot.SHIELD,
-            EquipSlot.BOOTS
+            EquipSlot.SHIELD
     };
 
     public static final int TOOLBAR_SIZE = 5;
@@ -122,6 +123,38 @@ public class Inventory {
             if (s.itemId != null && s.itemId.equals(itemId)) total += s.count;
         }
         return total >= count;
+    }
+
+    /**
+     * Takes {@code count} of an item out of the inventory, emptying slots as they run
+     * dry. Toolbar slots holding the item are drained first, then the grid.
+     *
+     * <p>Callers that consume gems (the boss fight) use this instead of a bespoke path
+     * so there is exactly one way an item leaves the inventory.</p>
+     *
+     * @return true if the full count was removed
+     */
+    public boolean removeItem(String itemId, int count) {
+        if (itemId == null || count <= 0) return false;
+        int remaining = count;
+        for (Slot s : toolbar) {
+            if (s.itemId == null || !s.itemId.equals(itemId)) continue;
+            int taken = Math.min(s.count, remaining);
+            s.count -= taken;
+            remaining -= taken;
+            if (s.count <= 0) s.clear();
+            if (remaining <= 0) return true;
+        }
+
+        for (Slot s : grid) {
+            if (s.itemId == null || !s.itemId.equals(itemId)) continue;
+            int taken = Math.min(s.count, remaining);
+            s.count -= taken;
+            remaining -= taken;
+            if (s.count <= 0) s.clear();
+            if (remaining <= 0) return true;
+        }
+        return remaining <= 0;
     }
 
     /**

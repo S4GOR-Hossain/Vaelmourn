@@ -75,16 +75,13 @@ public class InventoryUI {
     private float charPanelLeft, charPanelRight, charPanelW, charPanelTop, charPanelBottom;
     private float previewLeft, previewRight, previewBottom, previewTop, previewW, previewH;
     private float eqLeftX, eqRightX;
-    private float helmY, chestY, legsY, shieldY, bootsY;
+    // helmY still anchors previewTop; chestY/legsY/bootsY went away with the armour slots
+    private float helmY, shieldY;
 
     private static final ColorRGBA DEFAULT_EQUIP_SIL_COLOR = new ColorRGBA(0.55f, 0.58f, 0.62f, 0.30f);
 
     private static final Inventory.EquipSlot[] EQUIP_VISUAL = {
-            Inventory.EquipSlot.HELMET,
-            Inventory.EquipSlot.CHESTPLATE,
-            Inventory.EquipSlot.LEGGINGS,
-            Inventory.EquipSlot.BOOTS,
-            Inventory.EquipSlot.SHIELD
+        Inventory.EquipSlot.SHIELD
     };
 
     private BitmapText nameText, levelText;
@@ -356,13 +353,12 @@ public class InventoryUI {
 
         previewLeft = charPanelLeft + 22f * sx + slot + 20f * sx;
         previewRight = previewLeft + previewW;
+        // single equipment slot (shield). Helmets/chestplate/leggings/boots were
+        // retired with the armour system, so the vertical armour column is gone.
+        // Shield stays centered vertically around the chest area.
+        shieldY = (previewTop + previewBottom) / 2f;
         eqLeftX = charPanelLeft + 22f * sx;
         eqRightX = charPanelRight - 22f * sx - slot;
-
-        chestY = previewTop - 36f * sy - slot;
-        shieldY = chestY;
-        legsY = previewBottom + 22f * sy;
-        bootsY = legsY;
 
         barThick = Math.max(1.5f, 4f * sy);
     }
@@ -476,11 +472,10 @@ public class InventoryUI {
                 new ColorRGBA(0.28f, 0.48f, 0.92f, 1f));
         hudNode.attachChild(xpFill);
 
-        buildEquipSlot(0, charPanelLeft + (charPanelW - slot) / 2f, helmY, EQUIP_VISUAL[0]);
-        buildEquipSlot(1, eqLeftX, chestY, EQUIP_VISUAL[1]);
-        buildEquipSlot(2, eqLeftX, legsY, EQUIP_VISUAL[2]);
-        buildEquipSlot(3, eqRightX, shieldY, EQUIP_VISUAL[3]);
-        buildEquipSlot(4, eqRightX, bootsY, EQUIP_VISUAL[4]);
+        // one equipment slot only
+        if (EQUIP_VISUAL.length > 0) {
+            buildEquipSlot(0, eqRightX, shieldY, EQUIP_VISUAL[0]);
+        }
 
         buildStatsPanel();
     }
@@ -501,10 +496,6 @@ public class InventoryUI {
         equipViews[visualIndex] = v;
 
         String cap = switch (slotType) {
-            case HELMET -> "HELMET";
-            case CHESTPLATE -> "CHEST";
-            case LEGGINGS -> "LEGS";
-            case BOOTS -> "BOOTS";
             case SHIELD -> "SHIELD";
         };
         BitmapText caption = addText(hudNode, cap, x + (slot - textWidth(cap, 10f * sy)) / 2f,
@@ -632,26 +623,6 @@ public class InventoryUI {
             float s = eqSlot;
             float c = x + s / 2f, m = y + s / 2f, u = s / 9f;
             switch (es) {
-                case HELMET -> {
-                    sil(n, c - 1.9f * u, m + 0.8f * u, 3.8f * u, 1.8f * u, col);
-                    sil(n, c - 2.3f * u, m - 0.5f * u, 4.6f * u, 0.6f * u, col);
-                }
-                case CHESTPLATE -> {
-                    sil(n, c - 1.5f * u, m - 2.0f * u, 3.0f * u, 3.4f * u, col);
-                    sil(n, c - 2.3f * u, m + 0.4f * u, 1.5f * u, 1.3f * u, col);
-                    sil(n, c + 0.8f * u, m + 0.4f * u, 1.5f * u, 1.3f * u, col);
-                }
-                case LEGGINGS -> {
-                    sil(n, c - 1.9f * u, m + 0.5f * u, 3.8f * u, 0.8f * u, col);
-                    sil(n, c - 1.4f * u, m - 2.4f * u, 1.2f * u, 2.5f * u, col);
-                    sil(n, c + 0.2f * u, m - 2.4f * u, 1.2f * u, 2.5f * u, col);
-                }
-                case BOOTS -> {
-                    sil(n, c - 1.6f * u, m - 1.8f * u, 1.6f * u, 1.3f * u, col);
-                    sil(n, c - 1.6f * u, m - 0.5f * u, 2.0f * u, 0.7f * u, col);
-                    sil(n, c + 0.0f * u, m - 1.8f * u, 1.6f * u, 1.3f * u, col);
-                    sil(n, c + 0.0f * u, m - 0.5f * u, 2.0f * u, 0.7f * u, col);
-                }
                 case SHIELD -> {
                     sil(n, c - 1.0f * u, m - 2.6f * u, 2.0f * u, 4.6f * u, col);
                     sil(n, c - 1.0f * u, m + 2.0f * u, 2.0f * u, 0.8f * u, col);

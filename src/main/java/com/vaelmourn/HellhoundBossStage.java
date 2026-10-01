@@ -1,6 +1,7 @@
 package com.vaelmourn;
 
 import com.jme3.asset.AssetManager;
+import com.jme3.bounding.BoundingBox;
 import com.jme3.bullet.BulletAppState;
 import com.jme3.bullet.collision.shapes.BoxCollisionShape;
 import com.jme3.bullet.control.RigidBodyControl;
@@ -18,15 +19,8 @@ import java.util.Random;
 /** Hellhound Boss Arena — a volcanic caldera of lava pools and rocks around an open circle. */
 public class HellhoundBossStage extends BossStage {
 
-    private static final String[] STONE_MODELS = {
-            "Models/Environment/Forest/stone_tallA.glb",
-            "Models/Environment/Forest/stone_tallB.glb",
-            "Models/Environment/Forest/stone_tallC.glb",
-            "Models/Environment/Forest/stone_tallD.glb",
-            "Models/Environment/Forest/stone_largeA.glb",
-            "Models/Environment/Forest/stone_largeB.glb",
-            "Models/Environment/Forest/stone_largeC.glb"
-    };
+    private static final String CENJI =
+            "Models/Environment/Cenji_FantasyCrystalPack_FREE/Cenji_FantasyCrystalPack_FREE/GLB/";
 
     @Override
     protected void buildArenaDecor(AssetManager assetManager, BulletAppState bulletAppState) {
@@ -48,25 +42,45 @@ public class HellhoundBossStage extends BossStage {
             stageNode.attachChild(lava);
         }
 
+        String[] rocks = {
+                CENJI + "Rocks/ROCK_Volcanic_01_LargeCrag.glb",
+                CENJI + "Rocks/ROCK_Volcanic_02_MediumBlock.glb",
+                CENJI + "Rocks/ROCK_Volcanic_04_BasaltPillar.glb",
+                CENJI + "Rocks/ROCK_Corrupted_01_LargeMass.glb",
+                CENJI + "Rocks/ROCK_Corrupted_04_TwistedPinnacle.glb"
+        };
+        String[] crystals = {
+                CENJI + "Crystal_Formations/PROP_06_CrystalSpikes.glb",
+                CENJI + "Crystal_Formations/PROP_18_DarkCursedCrystal.glb",
+                CENJI + "Crystal_Formations/PROP_20_EmberCrystalFormation.glb",
+                CENJI + "Crystal_Formations/PROP_17_RuneCrystal.glb"
+        };
+
         for (int i = 0; i < 18; i++) {
             float angle = (i / 18f) * FastMath.TWO_PI + rand.nextFloat() * 0.15f;
             float radius = getRingStart() + 2f + rand.nextFloat() * (getRingEnd() - getRingStart() - 2f);
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
 
-            String model = STONE_MODELS[rand.nextInt(STONE_MODELS.length)];
-            Spatial stone = assetManager.loadModel(model);
-            stone.setLocalTranslation(x, 0, z);
-            stone.rotate(0, rand.nextFloat() * FastMath.TWO_PI, 0);
-            float size = 4f + rand.nextFloat() * 3f;
-            stone.setLocalScale(size);
-            stageNode.attachChild(stone);
+            Spatial stone = StageDecor.placeFlat(stageNode, assetManager,
+                    rocks[rand.nextInt(rocks.length)], x, z,
+                    2.6f + rand.nextFloat() * 2.2f, rand);
+            stone.updateModelBound();
+            float half = 1.4f;
+            if (stone.getWorldBound() instanceof BoundingBox bbox) {
+                Vector3f ext = bbox.getExtent(new Vector3f());
+                half = FastMath.clamp((ext.x + ext.z) * 0.4f, 1.2f, 3f);
+            }
+            StageDecor.addBlocker(bulletAppState, physicsObjects, x, z, half, half, half);
+        }
 
-            BoxCollisionShape rockShape = new BoxCollisionShape(new Vector3f(size * 0.35f, size * 0.4f, size * 0.35f));
-            RigidBodyControl physics = new RigidBodyControl(rockShape, 0);
-            physics.setPhysicsLocation(new Vector3f(x, size * 0.35f, z));
-            bulletAppState.getPhysicsSpace().add(physics);
-            physicsObjects.add(physics);
+        for (int i = 0; i < 8; i++) {
+            float angle = rand.nextFloat() * FastMath.TWO_PI;
+            float radius = getRingStart() + 3f + rand.nextFloat() * (getRingEnd() - getRingStart() - 3f);
+            float x = FastMath.cos(angle) * radius;
+            float z = FastMath.sin(angle) * radius;
+            StageDecor.placeFlat(stageNode, assetManager, crystals[rand.nextInt(crystals.length)],
+                    x, z, 2.8f + rand.nextFloat() * 1.6f, rand);
         }
     }
 
@@ -78,6 +92,38 @@ public class HellhoundBossStage extends BossStage {
     @Override
     protected String getBossModelPath() {
         return "Models/Characters/boss/hell_hound.gltf";
+    }
+
+    @Override
+    protected BossSpec getBossSpec() {
+        BossSpec s = new BossSpec();
+        s.hoverHeight = 6f;
+        s.moveSpeed = 5.2f;
+        s.attackCooldown = 2.4f;
+        s.meleeRange = 1.5f; // aerial beast bites from swoops, not hover-melee
+        s.charge = true;
+        s.chargeCooldown = 8f;
+        s.chargeSpeed = 24f;
+        s.chargeRange = 6f;
+        s.chargeDuration = 0.8f;
+        s.chargeHitRadius = 3.4f;
+        s.chargeDamage = 16f;
+        s.chargeRecovery = 0.9f;
+        s.smash = true; // diving slam: rises at the windup, slams into the disc
+        s.smashWindup = 0.7f;
+        s.smashCooldown = 7.5f;
+        s.smashRadius = 7f;
+        s.smashDamage = 14f;
+        s.smashRecovery = 1.0f;
+        s.summon = true;
+        s.summonInterval = 21f;
+        s.summonCount = 2;
+        s.summonCap = 4;
+        s.summonTier = 2;
+        s.summonModels = new String[]{
+                "Models/Characters/enemy/ashenwastes_enemy.gltf",
+                "Models/Characters/enemy/ashenwastes_enemy2.gltf"};
+        return s;
     }
 
     @Override

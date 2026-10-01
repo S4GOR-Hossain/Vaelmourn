@@ -168,12 +168,24 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     private InventoryUI inventoryUI;
     private boolean inventoryOpen = false;
 
+    /** Points at the closest living enemy, so the player never hunts blind. */
+    private EnemyDirectionArrow enemyArrow;
+
     private StageManager stageManager;
 
     private Node hudNode;
     private Geometry hudHpFill;
     private BitmapText hudHpText;
     private BitmapText hudEnemiesText;
+    private BitmapText hudSoulText;
+    private BitmapText interactPrompt;
+    /** transient one-liner for gem pickups, drops and boss-gate refusals */
+    private BitmapText hudMessage;
+    private float hudMessageTimer;
+    private static final float HUD_MESSAGE_SECONDS = 4.5f;
+    /** current frame's delta, captured in simpleUpdate so HUD timers can age */
+    private float frameDelta = 1f / 60f;
+    private float hudSoulRightAnchor;
     private Geometry hudCooldownFill;
     private float hudSx = 1f;
     private float hudSy = 1f;
@@ -211,9 +223,10 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     private boolean lightProbeBaked = false;
 
     private List<Interactable> interactables = new ArrayList<>();
-    private List<RigidBodyControl> interactablePhysics = new ArrayList<>();
+    private List<Object> interactablePhysics = new ArrayList<>();
     private boolean interactablesBuilt = false;
-    private ShopUI shopUI;
+    private PotionShopUI potionShopUI;
+    private RunUpgradeUI runUpgradeUI;
     private ChestUI chestUI;
     private static final float INTERACT_RANGE = 3.5f;
 
@@ -272,6 +285,11 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
     public void simpleInitApp() {
 
         viewPort.setBackgroundColor(new ColorRGBA(0.45f, 0.65f, 0.82f, 1f));
+
+        // The biome gems ship as .fbx and nothing else in the game uses that format,
+        // so the plugin's loader has to be registered before anything asks for one.
+        // jME3's AssetManager only knows about loaders it is explicitly told about.
+        assetManager.registerLoader(com.jme3.scene.plugins.fbx.FbxLoader.class, "fbx");
 
         // Lemur must be up before any GUI widgets are made
         GuiGlobals.initialize(this);
@@ -364,11 +382,16 @@ public class ForestBiome extends SimpleApplication implements ActionListener {
         combat.setPlayerStats(playerStats);
 combat.equip("iron_sword"); // now that stats exist, push the default sword's values in
         grantStarterLoadout();
-        // Fixed 29-stage rotation: each biome = 4 normal stages -> boss arena ->
-        // safe hub (minus the Kingdom Court, which only has 3 regular stages),
-        // looping back to a fresh Sanctuary after the Fallen King.
+        // Fixed 30-stage rotation: each biome = 4 normal stages -> boss arena ->
+        // safe hub (the Kingdom Court only shipped 3 regular stages, so KC4 was
+        // added to give the Fallen King the same four-level gate as every other
+        // biome's gem), looping back to a fresh Sanctuary after the Fallen King.
         stageManager = new StageManager(assetManager, rootNode, bulletAppState, this);
+        enemyArrow = new EnemyDirectionArrow(assetManager, rootNode);
         stageManager.setPlayerStats(playerStats);
+        stageManager.setInventory(inventory);
+        stageManager.setMessageSink(this::showHudMessage);
+        if (enemyArrow != null) enemyArrow.hide();
         stageManager.addStage(new SanctuaryStage());
         stageManager.addStage(new DarkwoodStage(1));
         stageManager.addStage(new DarkwoodStage(2));
@@ -397,16 +420,21 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
         stageManager.addStage(new DarkRoyaleKingdomCourtStage(1));
         stageManager.addStage(new DarkRoyaleKingdomCourtStage(2));
         stageManager.addStage(new DarkRoyaleKingdomCourtStage(3));
+        stageManager.addStage(new DarkRoyaleKingdomCourtStage(4));
         stageManager.addStage(new FallenKingBossStage());            
         stageManager.loadInitialStage(playerControl);
         combat.setEnemies(stageManager.getActiveEnemies());
 
-        // Shop and Chest UIs must exist before the interactables hold a reference
-        // to them, or pressing F near a chest/NPC does nothing.
-        shopUI = new ShopUI(assetManager, renderManager, inputManager, cam, guiNode,
-                inventory, playerStats, settings.getWidth(), settings.getHeight());
+        // Chest UI must exist before the interactables hold a reference
+        // to it, or pressing F near a chest does nothing.
         chestUI = new ChestUI(assetManager, renderManager, inputManager, cam, guiNode,
                 inventory, settings.getWidth(), settings.getHeight());
+        // the two Sanctuary merchant menus. Also must exist before the NPCs that
+        // reference them, and must be registered in isUiOpen() so the world pauses.
+        potionShopUI = new PotionShopUI(assetManager, inputManager, cam, guiNode,
+                inventory, playerStats, settings.getWidth(), settings.getHeight());
+        runUpgradeUI = new RunUpgradeUI(assetManager, inputManager, cam, guiNode,
+                playerStats, settings.getWidth(), settings.getHeight());
 
         spawnChestsAndNPCs();
 
@@ -842,13 +870,15 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
         if (inventoryOpen && inventoryUI != null) inventoryUI.setVisible(false);
         inventoryOpen = false;
         if (chestUI != null && chestUI.isOpen()) chestUI.closeChest();
-        if (shopUI != null && shopUI.isOpen()) shopUI.closeShop();
+        if (potionShopUI != null && potionShopUI.isOpen()) potionShopUI.closeShop();
+        if (runUpgradeUI != null && runUpgradeUI.isOpen()) runUpgradeUI.close();
 
         // lock gameplay outright: no movement, no attacks
         forward = backward = left = right = false;
         jumpHeld = false;
         crouching = false;
         dodging = false;
+        if (playerStats != null) playerStats.setInvulnerable(false);
         movementVelocity.set(0, 0, 0);
         if (playerControl != null) {
             playerControl.setWalkDirection(Vector3f.ZERO);
@@ -873,7 +903,14 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
 
         // 1. wipe the run: inventory and stats back to fresh defaults
         if (inventory != null) inventory.clearAll();
-        if (playerStats != null) playerStats.resetToDefaults();
+        if (playerStats != null) {
+            playerStats.resetToDefaults();
+            // Run stat upgrades (Attack/Speed/Defense/Jump/Luck) and potion upgrade
+            // levels are temporary. Clearing them here is what makes every stat
+            // multiplier fall back to 1.0x and every potion to level 1, so the next
+            // run starts from the player's original base values.
+            playerStats.resetUpgrades();
+        }
         grantStarterLoadout();
         if (combat != null) combat.equip("iron_sword");
 
@@ -882,6 +919,7 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
             stageManager.resetToFirstStage(playerControl);
             if (combat != null) combat.setEnemies(stageManager.getActiveEnemies());
         }
+        if (enemyArrow != null) enemyArrow.hide();
 
         // 3. chests/NPCs get rebuilt fresh next frame in the Sanctuary
         cleanupInteractables();
@@ -902,6 +940,7 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
         coyoteTimer = 0f;
         dodgeCooldown = 0f;
         dodgeTimer = 0f;
+        if (playerStats != null) playerStats.setInvulnerable(false);
         landDip = 0f;
         airborneFallPeak = 0f;
 
@@ -913,7 +952,7 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
         System.out.println("[Respawn] A fresh run begins in the Sanctuary.");
     }
 
-    /** Starting pack: potions, materials, the iron starter set, +250 dust, +40 XP. */
+    /** Starting pack: potions, keys, the iron starter set, +250 soul dust, +40 XP. */
     private void grantStarterLoadout() {
         if (inventory == null || playerStats == null) return;
 
@@ -923,13 +962,6 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
         inventory.addItem("critical_potion", 2);
         inventory.addItem("regen_potion", 3);
         inventory.addItem("dungeon_key", 2);
-        inventory.addItem("iron_ingot", 12);
-        inventory.addItem("iron_ore", 8);
-        inventory.addItem("leather", 8);
-        inventory.addItem("blood_shard", 1);
-        inventory.addItem("wolf_fang", 1);
-        inventory.addItem("ember_core", 1);
-        inventory.addItem("void_crystal", 1);
         inventory.addItem("hunters_blade", 1);
         inventory.addItem("heavy_blade", 1);
         inventory.addItem("iron_sword", 1);
@@ -943,12 +975,8 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
         inventory.getToolbarSlot(3).count = 2;
         inventory.getToolbarSlot(4).itemId = "regen_potion";
         inventory.getToolbarSlot(4).count = 2;
-        inventory.getEquipSlot(Inventory.EquipSlot.HELMET).itemId = "iron_helmet";
-        inventory.getEquipSlot(Inventory.EquipSlot.HELMET).count = 1;
-        inventory.getEquipSlot(Inventory.EquipSlot.CHESTPLATE).itemId = "iron_chestplate";
-        inventory.getEquipSlot(Inventory.EquipSlot.CHESTPLATE).count = 1;
-        inventory.getEquipSlot(Inventory.EquipSlot.BOOTS).itemId = "iron_boots";
-        inventory.getEquipSlot(Inventory.EquipSlot.BOOTS).count = 1;
+        // no armour is equipped at run start any more — Defense comes from the
+        // Sanctuary run upgrade instead, so the player begins on base defense 10.
         playerStats.addSoulDust(250);
         playerStats.addExperience(40f);
     }
@@ -972,9 +1000,12 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
                 if (isPressed) toggleInventory();
                 return;
 
-            case "Interact":
-                if (isPressed) handleInteract();
-                return;
+        case "Interact":
+            // gated like the combat actions: without this, pressing F while a shop or
+            // upgrade menu is open would open a second menu underneath the first.
+            if (isUiOpen()) return;
+            if (isPressed) handleInteract();
+            return;
 
             case "Left":
             case "Right":
@@ -1087,7 +1118,8 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
     private boolean isUiOpen() {
         if (inventoryOpen) return true;
         if (chestUI != null && chestUI.isOpen()) return true;
-        if (shopUI != null && shopUI.isOpen()) return true;
+        if (potionShopUI != null && potionShopUI.isOpen()) return true;
+        if (runUpgradeUI != null && runUpgradeUI.isOpen()) return true;
         return false;
     }
 
@@ -1108,6 +1140,10 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
         dodging = true;
         dodgeTimer = DODGE_DURATION;
         dodgeCooldown = DODGE_COOLDOWN_TIME;
+        // Full immunity for exactly as long as the roll plays. The Roll clip is
+        // time-scaled to finish with dodgeTimer (see simpleUpdate), so the invulnerable
+        // window and the animation are the same window.
+        if (playerStats != null) playerStats.setInvulnerable(true);
         // dodge in the last held direction so it reads as a momentum burst;
         // with nothing held it still fires, straight ahead of the camera
         dodgeDirection.set(lastMoveDir);
@@ -1132,6 +1168,7 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
 
     @Override
     public void simpleUpdate(float tpf) {
+        frameDelta = tpf;
         if (stageManager != null) {
             SoundManager.update(tpf, stageManager.getCurrentStage());
         }
@@ -1175,6 +1212,16 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
         if (stageManager != null) {
             stageManager.update(tpf, playerNode.getWorldTranslation(), playerControl);
         }
+
+        // The arrow must feel like part of the HUD, but it lives in the world so
+        // its pitch never reads "screen-locked" — it always aims at the enemy's
+        // position relative to the player, in the camera's own space.
+        if (enemyArrow != null && stageManager != null && playerNode != null && cam != null) {
+            Vector3f playerPos = playerNode.getWorldTranslation();
+            EnemyController nearest = stageManager.getNearestLivingEnemy(playerPos, tpf);
+            // jME's Camera exposes getLeft(), so the right axis is its negation
+            enemyArrow.update(tpf, playerPos, nearest, cam.getLeft().negate(), cam.getDirection());
+        }
         if (combat != null) {
             combat.setEnemies(stageManager != null ? stageManager.getActiveEnemies() : null);
             combat.update(tpf);
@@ -1195,8 +1242,13 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
             Vector3f playerPos = playerNode.getWorldTranslation();
             Vector3f facing = cam.getDirection();
             for (Interactable it : interactables) {
-                if (it instanceof NPC npc && npc.getVoicePool() > 0) {
-                    SoundManager.maybeNpcVoice(npc.getVoicePool(), npc.getPosition(), playerPos, facing, tpf);
+                if (it instanceof NPC npc) {
+                    // drive the wander before the voice line, so the distance check uses
+                    // this frame's position rather than last frame's
+                    npc.update(tpf);
+                    if (npc.getVoicePool() > 0) {
+                        SoundManager.maybeNpcVoice(npc.getVoicePool(), npc.getPosition(), playerPos, facing, tpf);
+                    }
                 }
             }
         }
@@ -1231,6 +1283,16 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
             gravityScale = RISE_GRAVITY_MULTIPLIER;
         }
         playerControl.setGravity(new Vector3f(0, -BASE_GRAVITY * gravityScale, 0));
+        // Jump Height run-upgrade, applied to the jump force the character controller
+        // reads. Peak height goes as v^2/(2g), so scaling the force by the stat
+        // multiplier's square root makes the HEIGHT scale linearly — a 1.5x Jump stat
+        // jumps 1.5x as high rather than 2.25x. Re-applied every frame so a purchase
+        // takes effect immediately and a new run's reset is picked up automatically.
+        if (playerStats != null) {
+            float jumpMult = playerStats.getRunUpgrades().getMultiplier(
+                    RunUpgrades.Stat.JUMP);
+            playerControl.setJumpForce(new Vector3f(0, JUMP_FORCE * FastMath.sqrt(jumpMult), 0));
+        }
 
         boolean airborne = !grounded;
 
@@ -1310,6 +1372,8 @@ combat.equip("iron_sword"); // now that stats exist, push the default sword's va
 
             if (dodgeTimer <= 0f) {
                 dodging = false;
+                // roll is over — the player takes damage normally again from here on
+                if (playerStats != null) playerStats.setInvulnerable(false);
             }
         } else {
             // eased velocity, so strafes and backpedals keep a hint of momentum
@@ -1456,12 +1520,44 @@ Vector3f playerPos = playerNode.getWorldTranslation().clone();
         hudHpText.setLocalTranslation(fillX + 4f * hudSx, fillY + 1f * hudSy, 0);
         hudNode.attachChild(hudHpText);
 
+        // Remaining-enemy counter. Top-right, above Soul Dust, so it reads as a
+        // "how much fight is left" readout rather than part of the vitals cluster.
+        // Right-aligned like the Soul Dust line below it.
         hudEnemiesText = new BitmapText(font, false);
-        hudEnemiesText.setSize(16f * hudSy);
-        hudEnemiesText.setColor(new ColorRGBA(0.9f, 0.9f, 0.95f, 1f));
-        hudEnemiesText.setText("Enemies: 0");
-        hudEnemiesText.setLocalTranslation(margin, (20f * hudSy + barH + 8f * hudSy), 0);
+        hudEnemiesText.setSize(18f * hudSy);
+        hudEnemiesText.setColor(new ColorRGBA(0.95f, 0.65f, 0.65f, 1f));
+        hudEnemiesText.setText("ENEMIES: 00");
+        hudEnemiesText.setCullHint(Spatial.CullHint.Always);
+        hudEnemiesText.setLocalTranslation(screenW - margin, 58f * hudSy, 0);
         hudNode.attachChild(hudEnemiesText);
+
+        hudSoulText = new BitmapText(font, false);
+        hudSoulText.setSize(18f * hudSy);
+        hudSoulText.setColor(new ColorRGBA(0.85f, 0.92f, 1f, 1f));
+        hudSoulText.setText("Soul Dust: 0");
+        // anchored to the top-right corner, right-aligned in updateHUD
+        hudSoulRightAnchor = screenW - margin;
+        hudSoulText.setLocalTranslation(hudSoulRightAnchor - hudSoulText.getLineWidth(),
+                30f * hudSy, 0);
+        hudNode.attachChild(hudSoulText);
+
+        // context prompt shown only while standing in range of a chest or NPC.
+        // Hidden (empty text) the rest of the time so it never occupies the screen.
+        interactPrompt = new BitmapText(font, false);
+        interactPrompt.setSize(18f * hudSy);
+        interactPrompt.setColor(new ColorRGBA(1f, 0.95f, 0.7f, 1f));
+        interactPrompt.setText("");
+        interactPrompt.setLocalTranslation(margin, 70f * hudSy, 0);
+        hudNode.attachChild(interactPrompt);
+
+        // transient gem/progression feedback; sits above the interact prompt and
+        // blanks itself once its timer runs out, so it never clutters the HUD
+        hudMessage = new BitmapText(font, false);
+        hudMessage.setSize(20f * hudSy);
+        hudMessage.setColor(new ColorRGBA(1f, 0.95f, 0.55f, 1f));
+        hudMessage.setText("");
+        hudMessage.setLocalTranslation(margin, 96f * hudSy, 0);
+        hudNode.attachChild(hudMessage);
 
         float buffX = margin;
         float buffY = (20f * hudSy + barH + 26f * hudSy) + 3f * hudSy;
@@ -1647,13 +1743,24 @@ Vector3f playerPos = playerNode.getWorldTranslation().clone();
             hudCooldownFill.setLocalScale(Math.max(0.02f, fill), 1f, 1f);
         }
 
-        int remaining = (stageManager != null && stageManager.getActiveEnemies() != null)
-                ? stageManager.getActiveEnemies().size() : 0;
-        if (remaining > 0) {
-            String stageName = stageManager != null ? stageManager.getCurrentStageName() : "?";
-            hudEnemiesText.setText(stageName + "  |  Enemies: " + remaining);
-        } else {
-            hudEnemiesText.setText("Enemies: 0");
+        int remaining = stageManager != null ? stageManager.getRemainingEnemyCount() : 0;
+        if (hudEnemiesText != null) {
+            // format with leading zero so a single enemy reads ENEMIES: 01
+            String formatted = String.format("ENEMIES: %02d", Math.max(0, remaining));
+            hudEnemiesText.setText(formatted);
+            hudEnemiesText.setLocalTranslation(
+                    hudSoulRightAnchor - hudEnemiesText.getLineWidth(), 58f * hudSy, 0);
+            Spatial.CullHint hint = (remaining > 0 || (stageManager != null
+                    && stageManager.getCurrentStage() != null
+                    && !stageManager.getCurrentStage().isSafe()))
+                    ? Spatial.CullHint.Never : Spatial.CullHint.Always;
+            hudEnemiesText.setCullHint(hint);
+        }
+
+        if (hudSoulText != null) {
+            hudSoulText.setText("Soul Dust: " + playerStats.getSoulDust());
+            hudSoulText.setLocalTranslation(
+                    hudSoulRightAnchor - hudSoulText.getLineWidth(), 30f * hudSy, 0);
         }
 
         PlayerStats.Buff[] buffs = PlayerStats.Buff.values();
@@ -1671,6 +1778,58 @@ Vector3f playerPos = playerNode.getWorldTranslation().clone();
         }
 
         refreshToolbarHud();
+        updateInteractPrompt();
+
+        if (hudMessage != null && hudMessageTimer > 0f) {
+            hudMessageTimer -= frameDelta;
+            if (hudMessageTimer <= 0f) {
+                hudMessageTimer = 0f;
+                hudMessage.setText("");
+            }
+        }
+    }
+
+    /**
+     * Transient HUD line used by the gem progression ("Gem dropped", "Gem acquired",
+     * boss-gate refusals). Mirrors to the console so a message is never lost behind a
+     * UI overlay, and simply drops the text if the HUD is not built yet.
+     */
+    private void showHudMessage(String message) {
+        if (message == null || message.isEmpty()) return;
+        System.out.println("[Gem] " + message);
+        if (hudMessage == null) return;
+        hudMessage.setText(message);
+        hudMessageTimer = HUD_MESSAGE_SECONDS;
+    }
+
+    /**
+     * Shows "[F] Name" while the player stands in range of the closest chest or NPC,
+     * mirroring the closest-wins rule {@link #handleInteract()} uses so the prompt
+     * always names the object F would actually trigger.
+     */
+    private void updateInteractPrompt() {
+        if (interactPrompt == null) return;
+        if (isUiOpen()) {
+            interactPrompt.setText("");
+            return;
+        }
+        Vector3f playerPos = playerNode.getWorldTranslation();
+        Interactable nearest = null;
+        float best = Float.MAX_VALUE;
+        for (Interactable it : interactables) {
+            if (!it.isInRange(playerPos, INTERACT_RANGE)) continue;
+            float d = it.getPosition().distance(playerPos);
+            if (d < best) {
+                best = d;
+                nearest = it;
+            }
+        }
+        if (nearest == null) {
+            interactPrompt.setText("");
+        } else {
+            String label = (nearest instanceof NPC) ? ((NPC) nearest).getName() : "Chest";
+            interactPrompt.setText("[F] " + label);
+        }
     }
 
     private void spawnChestsAndNPCs() {
@@ -1678,18 +1837,18 @@ Vector3f playerPos = playerNode.getWorldTranslation().clone();
         chest1.build(assetManager, rootNode, bulletAppState);
         chest1.addLoot("health_potion", 3);
         chest1.addLoot("regen_potion", 2);
-        chest1.addLoot("iron_ingot", 5);
-        chest1.addLoot("iron_ore", 6);
+        chest1.addLoot("speed_potion", 2);
+        chest1.addLoot("strength_potion", 1);
         chest1.setChestUI(chestUI);
         interactables.add(chest1);
         interactablePhysics.add(chest1.getPhysics());
 
         Chest chest2 = new Chest(new Vector3f(-20f, 0.6f, 10f));
         chest2.build(assetManager, rootNode, bulletAppState);
-        chest2.addLoot("leather", 8);
         chest2.addLoot("dungeon_key", 1);
         chest2.addLoot("health_potion", 2);
-        chest2.addLoot("wolf_fang", 1);
+        chest2.addLoot("speed_potion", 2);
+        chest2.addLoot("critical_potion", 1);
         chest2.setChestUI(chestUI);
         interactables.add(chest2);
         interactablePhysics.add(chest2.getPhysics());
@@ -1697,17 +1856,22 @@ Vector3f playerPos = playerNode.getWorldTranslation().clone();
         Chest chest3 = new Chest(new Vector3f(5f, 0.6f, 25f));
         chest3.build(assetManager, rootNode, bulletAppState);
         chest3.addLoot("iron_sword", 1);
-        chest3.addLoot("iron_ingot", 10);
-        chest3.addLoot("speed_potion", 2);
-        chest3.addLoot("strength_potion", 1);
         chest3.addLoot("hunters_blade", 1);
+        chest3.addLoot("heavy_blade", 1);
+        chest3.addLoot("speed_potion", 2);
+        chest3.addLoot("regen_potion", 1);
         chest3.setChestUI(chestUI);
         interactables.add(chest3);
         interactablePhysics.add(chest3.getPhysics());
 
         System.out.println("Spawned 3 chests in Sanctuary");
 
-        NPC merchant1 = new NPC("Merchant Elara", new Vector3f(-10f, 0f, -20f));
+        // ---- NPC 1: THE POTION MERCHANT -------------------------------------
+        // Potions only, plus the potion upgrade rows rendered by PotionShopUI.
+        // npc1.gltf stands at (-10,0,-20); facing ~135deg turns them toward the
+        // spawn point at the origin so they look at an approaching player.
+        NPC merchant1 = new NPC("Potion Merchant", new Vector3f(-10f, 0f, -20f));
+        merchant1.setModel("Models/Characters/npc/npc1.gltf", 135f);
         merchant1.build(assetManager, rootNode, bulletAppState);
         merchant1.setVoicePool(1);
         merchant1.addShopItem("health_potion", 15);
@@ -1715,34 +1879,23 @@ Vector3f playerPos = playerNode.getWorldTranslation().clone();
         merchant1.addShopItem("strength_potion", 22);
         merchant1.addShopItem("critical_potion", 25);
         merchant1.addShopItem("regen_potion", 16);
-        merchant1.addShopItem("iron_ingot", 25);
-        merchant1.addShopItem("iron_ore", 8);
-        merchant1.addShopItem("leather", 10);
-        merchant1.addShopItem("wolf_fang", 35);
-        merchant1.addShopItem("blood_shard", 45);
-        merchant1.addShopItem("ember_core", 55);
-        merchant1.addShopItem("void_crystal", 95);
-        merchant1.setShopUI(shopUI);
+        merchant1.setPotionShopUI(potionShopUI);
         interactables.add(merchant1);
         interactablePhysics.add(merchant1.getPhysics());
 
-        NPC merchant2 = new NPC("Blacksmith Kain", new Vector3f(15f, 0f, 5f));
+        // ---- NPC 2: THE RUN UPGRADER ---------------------------------------
+        // No stock at all — this NPC only sells the five run stat upgrades.
+        // npc2.gltf stands at (15,0,5), facing ~-110deg to look back at the spawn.
+        NPC merchant2 = new NPC("Run Upgrader", new Vector3f(15f, 0f, 5f));
+        merchant2.setModel("Models/Characters/npc/npc2.gltf", -110f);
         merchant2.build(assetManager, rootNode, bulletAppState);
         merchant2.setVoicePool(2);
-        merchant2.addShopItem("iron_sword", 100);
-        merchant2.addShopItem("hunters_blade", 120);
-        merchant2.addShopItem("heavy_blade", 140);
-        merchant2.addShopItem("iron_helmet", 80);
-        merchant2.addShopItem("iron_chestplate", 120);
-        merchant2.addShopItem("iron_leggings", 90);
-        merchant2.addShopItem("iron_boots", 60);
-        merchant2.addShopItem("dungeon_key", 50);
-        merchant2.setShopUI(shopUI);
+        merchant2.setRunUpgradeUI(runUpgradeUI);
         interactables.add(merchant2);
         interactablePhysics.add(merchant2.getPhysics());
 
         interactablesBuilt = true;
-        System.out.println("Spawned 2 NPCs in Sanctuary");
+        System.out.println("Spawned 2 NPCs in Sanctuary (Potion Merchant, Run Upgrader)");
     }
 
     private void updateSanctuaryInteractables() {
@@ -1762,7 +1915,7 @@ Vector3f playerPos = playerNode.getWorldTranslation().clone();
             interactable.cleanup();
         }
         interactables.clear();
-        for (RigidBodyControl body : interactablePhysics) {
+        for (Object body : interactablePhysics) {
             bulletAppState.getPhysicsSpace().remove(body);
         }
         interactablePhysics.clear();
@@ -1771,11 +1924,21 @@ Vector3f playerPos = playerNode.getWorldTranslation().clone();
 
     private void handleInteract() {
         Vector3f playerPos = playerNode.getWorldTranslation();
+        // closest-wins rather than first-in-list-wins: a chest sitting closer than an
+        // NPC (or vice versa) would otherwise swallow the interaction and make the
+        // other one feel unreachably dead.
+        Interactable nearest = null;
+        float nearestDist = Float.MAX_VALUE;
         for (Interactable interactable : interactables) {
-            if (interactable.isInRange(playerPos, INTERACT_RANGE)) {
-                interactable.interact();
-                return;
+            if (!interactable.isInRange(playerPos, INTERACT_RANGE)) continue;
+            float d = interactable.getPosition().distance(playerPos);
+            if (d < nearestDist) {
+                nearestDist = d;
+                nearest = interactable;
             }
+        }
+        if (nearest != null) {
+            nearest.interact();
         }
     }
 }

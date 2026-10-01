@@ -12,6 +12,7 @@ import com.jme3.math.ColorRGBA;
 import com.jme3.math.Vector3f;
 import com.jme3.scene.Geometry;
 import com.jme3.scene.Node;
+import com.jme3.scene.Spatial;
 import com.jme3.scene.shape.Box;
 
 import java.util.ArrayList;
@@ -32,6 +33,11 @@ public class Chest implements Interactable {
     private RigidBodyControl physics;
     private static final float INTERACT_RANGE = 3.5f;
 
+    /** Half-extents of the closed chest asset, measured from the model's own bounding box. */
+    private static final float CHEST_HALF_X = 0.70f;
+    private static final float CHEST_HALF_Y = 0.44f;
+    private static final float CHEST_HALF_Z = 0.45f;
+
     public Chest(Vector3f position) {
         this.position = position;
         this.node = new Node("Chest");
@@ -39,24 +45,55 @@ public class Chest implements Interactable {
     }
 
     public void build(AssetManager assetManager, Node parentNode, BulletAppState bulletAppState) {
-        // Just a plain box for the chest body
-        Box chestBox = new Box(0.5f, 0.6f, 0.5f);
-        Geometry chestGeo = new Geometry("ChestGeometry", chestBox);
+        Spatial model = loadChestModel(assetManager);
 
-        Material chestMat = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
-        chestMat.setBoolean("UseMaterialColors", true);
-        chestMat.setColor("Diffuse", new ColorRGBA(0.6f, 0.4f, 0.1f, 1f));
-        chestMat.setColor("Specular", ColorRGBA.White);
-        chestMat.setFloat("Shininess", 8f);
-        chestGeo.setMaterial(chestMat);
+        if (model != null) {
+            node.attachChild(model);
+        } else {
+            // Asset missing — fall back to the old box so the hub still has a chest.
+            Box chestBox = new Box(CHEST_HALF_X, CHEST_HALF_Y, CHEST_HALF_Z);
+            Geometry chestGeo = new Geometry("ChestGeometry", chestBox);
+            Material chestMat = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
+            chestMat.setBoolean("UseMaterialColors", true);
+            chestMat.setColor("Diffuse", new ColorRGBA(0.6f, 0.4f, 0.1f, 1f));
+            chestMat.setColor("Specular", ColorRGBA.White);
+            chestMat.setFloat("Shininess", 8f);
+            chestGeo.setMaterial(chestMat);
+            node.attachChild(chestGeo);
+        }
 
-        node.attachChild(chestGeo);
         parentNode.attachChild(node);
 
-        BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(0.5f, 0.6f, 0.5f));
+        // Collider matches the model's footprint and sits on the floor, so the player
+        // can't walk through the chest's corners.
+        BoxCollisionShape shape = new BoxCollisionShape(
+                new Vector3f(CHEST_HALF_X, CHEST_HALF_Y, CHEST_HALF_Z));
         physics = new RigidBodyControl(shape, 0);
-        physics.setPhysicsLocation(position);
+        physics.setPhysicsLocation(new Vector3f(position.x, CHEST_HALF_Y, position.z));
         bulletAppState.getPhysicsSpace().add(physics);
+    }
+
+    private static final String CHEST_MODEL = "Models/props/chest.gltf";
+
+    /**
+     * Loads the props/chest model and drops it onto the floor.
+     *
+     * <p>The chest node sits at y=0.6 (its spawn height), so the model is translated by
+     * (lift - 0.6): +lift puts the model's base on the node origin, then -0.6 walks it
+     * down onto the ground. Measured while detached — see {@link StageDecor#baseLift}.</p>
+     */
+    private Spatial loadChestModel(AssetManager assetManager) {
+        Spatial model;
+        try {
+            model = assetManager.loadModel(CHEST_MODEL);
+        } catch (Exception e) {
+            System.out.println("Failed to load chest model: " + e.getMessage());
+            return null;
+        }
+        if (model == null) return null;
+
+        model.setLocalTranslation(0f, StageDecor.baseLift(model) - position.y, 0f);
+        return model;
     }
 
     public void addLoot(String itemId, int count) {

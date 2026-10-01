@@ -21,20 +21,11 @@ import java.util.Random;
 public class DarkRoyaleKingdomCourtStage implements Stage {
 
     private static final float HALF_EXTENT = 60f;
+    private static final String DUNGEON = "Models/Environment/KayKit_Dungeon_Pack_1.1_FREE/Assets/gltf/";
 
     private static final String[] ENEMY_MODELS = {
             "Models/Characters/enemy/kingdomcourt_enemy.gltf",
             "Models/Characters/enemy/kingdomcourt_enemy2.gltf"
-    };
-
-    private static final String[] STONE_MODELS = {
-            "Models/Environment/Forest/stone_tallA.glb",
-            "Models/Environment/Forest/stone_tallB.glb",
-            "Models/Environment/Forest/stone_tallC.glb",
-            "Models/Environment/Forest/stone_tallD.glb",
-            "Models/Environment/Forest/stone_largeA.glb",
-            "Models/Environment/Forest/stone_largeB.glb",
-            "Models/Environment/Forest/stone_largeC.glb"
     };
 
     private final int variant;
@@ -170,47 +161,117 @@ public class DarkRoyaleKingdomCourtStage implements Stage {
     }
 
     private void buildCourt(AssetManager assetManager, BulletAppState bulletAppState) {
-        // variant re-seeds the ornament layout
+        // variant re-seeds the ornament layout; each stage walks one step deeper
+        // into the fallen castle — gate approach, courtyard, then the inner hall.
         Random rand = new Random(102 + variant);
 
-        // pillars dense enough to feel royal, spaced enough to keep the middle clear
-        for (int i = 0; i < 24; i++) {
-            float x = (rand.nextFloat() - 0.5f) * 100f;
-            float z = (rand.nextFloat() - 0.5f) * 100f;
-            if (new Vector3f(x, 0, z).length() < 14f) {
-                continue;
-            }
-
-            String chosenModel = STONE_MODELS[rand.nextInt(STONE_MODELS.length)];
-            Spatial stone = assetManager.loadModel(chosenModel);
-
-            stone.setLocalTranslation(x, 0, z);
-            stone.rotate(0, rand.nextFloat() * FastMath.TWO_PI, 0);
-            float size = 5f + rand.nextFloat() * 4f;
-            stone.setLocalScale(size);
-            stageNode.attachChild(stone);
-
-            BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(size * 0.35f, size * 0.4f, size * 0.35f));
-            RigidBodyControl physics = new RigidBodyControl(shape, 0);
-            physics.setPhysicsLocation(new Vector3f(x, size * 0.35f, z));
-            bulletAppState.getPhysicsSpace().add(physics);
-            physicsObjects.add(physics);
+        if (variant == 1) {
+            buildExteriorGate(assetManager, bulletAppState, rand);
+            scatterRuins(assetManager, bulletAppState, rand, 12);
+        } else if (variant == 2) {
+            buildCourtyardRing(assetManager, bulletAppState, rand);
+            scatterRuins(assetManager, bulletAppState, rand, 8);
+        } else {
+            buildInnerHall(assetManager, bulletAppState, rand);
+            scatterRuins(assetManager, bulletAppState, rand, 6);
         }
+    }
 
-        for (int i = 0; i < 8; i++) {
-            float x = (rand.nextFloat() - 0.5f) * 90f;
-            float z = (rand.nextFloat() - 0.5f) * 90f;
-            if (new Vector3f(x, 0, z).length() < 16f) {
-                continue;
+    /** Stage 1 of 3: a monumental ruined gate flanking the portal, towers and banners. */
+    private void buildExteriorGate(AssetManager am, BulletAppState bulletAppState, Random rand) {
+        placePiece(DUNGEON + "wall_archedwindow_gated.gltf", am, bulletAppState, rand, -7f, 31f, 1.7f, true);
+        placePiece(DUNGEON + "wall_archedwindow_gated.gltf", am, bulletAppState, rand, 7f, 31f, 1.7f, true);
+        placePiece(DUNGEON + "pillar_decorated.gltf", am, bulletAppState, rand, -16f, 33f, 1.6f, true);
+        placePiece(DUNGEON + "pillar_decorated.gltf", am, bulletAppState, rand, 16f, 33f, 1.6f, true);
+        placePiece(DUNGEON + "wall_doorway.gltf", am, bulletAppState, rand, 0f, -32f, 1.6f, true);
+        placePiece(DUNGEON + "torch_mounted.gltf", am, bulletAppState, rand, -9.5f, 31.5f, 1.2f, false);
+        placePiece(DUNGEON + "torch_mounted.gltf", am, bulletAppState, rand, 9.5f, 31.5f, 1.2f, false);
+        placePiece(DUNGEON + "banner_triple_red.gltf", am, bulletAppState, rand, -3.5f, 31.5f, 1.5f, false);
+        placePiece(DUNGEON + "banner_shield_blue.gltf", am, bulletAppState, rand, 3.5f, 31.5f, 1.5f, false);
+    }
+
+    /** Stage 2 of 3: a ceremonial colonnade ring with banners and war stores. */
+    private void buildCourtyardRing(AssetManager am, BulletAppState bulletAppState, Random rand) {
+        int pillars = 16;
+        for (int i = 0; i < pillars; i++) {
+            float angle = (i / (float) pillars) * FastMath.TWO_PI;
+            float x = FastMath.cos(angle) * 34f;
+            float z = FastMath.sin(angle) * 34f;
+            placePiece(DUNGEON + "pillar_decorated.gltf", am, bulletAppState, rand, x, z, 1.7f, true);
+            if (i % 2 == 0) {
+                float bx = FastMath.cos(angle + 0.15f) * 31f;
+                float bz = FastMath.sin(angle + 0.15f) * 31f;
+                String banner = rand.nextBoolean() ? DUNGEON + "banner_red.gltf" : DUNGEON + "banner_white.gltf";
+                placePiece(banner, am, bulletAppState, rand, bx, bz, 1.4f, false);
             }
+        }
+        for (int i = 0; i < 4; i++) {
+            float angle = i * FastMath.HALF_PI + FastMath.QUARTER_PI;
+            float x = FastMath.cos(angle) * 26f;
+            float z = FastMath.sin(angle) * 26f;
+            placePiece(DUNGEON + "crates_stacked.gltf", am, bulletAppState, rand, x, z, 1.5f, false);
+            placePiece(DUNGEON + "barrel_large.gltf", am, bulletAppState, rand, x + 3f, z, 1.3f, false);
+        }
+    }
 
-            Box slabBox = new Box(2.5f + rand.nextFloat() * 2.5f, 0.25f, 2.5f + rand.nextFloat() * 2.5f);
-            Geometry slab = new Geometry("CourtSlab_" + i, slabBox);
-            Material slabMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-            slabMat.setColor("Color", new ColorRGBA(0.24f, 0.22f, 0.3f, 1f));
-            slab.setMaterial(slabMat);
-            slab.setLocalTranslation(x, 0.25f, z);
-            stageNode.attachChild(slab);
+    /** Stage 3 of 3: the inner hall — torch-lit columns and garrison stores. */
+    private void buildInnerHall(AssetManager am, BulletAppState bulletAppState, Random rand) {
+        int columns = 22;
+        for (int i = 0; i < columns; i++) {
+            float angle = (i / (float) columns) * FastMath.TWO_PI + 0.1f;
+            float x = FastMath.cos(angle) * 30f;
+            float z = FastMath.sin(angle) * 30f;
+            placePiece(DUNGEON + "column.gltf", am, bulletAppState, rand, x, z, 1.8f, true);
+            if (i % 3 == 0) {
+                placePiece(DUNGEON + "torch_mounted.gltf", am, bulletAppState, rand, x - 1.5f, z, 1.2f, false);
+            }
+        }
+        for (int i = 0; i < 4; i++) {
+            float p = (float) (34 + i * 2);
+            placePiece(DUNGEON + "table_small.gltf", am, bulletAppState, rand, p, -p, 1.3f, false);
+            placePiece(DUNGEON + "box_stacked.gltf", am, bulletAppState, rand, -p, p, 1.5f, false);
+            placePiece(DUNGEON + "shelf_small_candles.gltf", am, bulletAppState, rand, -p, -p, 1.3f, false);
+            placePiece(DUNGEON + "barrel_small_stack.gltf", am, bulletAppState, rand, p, p, 1.3f, false);
+        }
+    }
+
+    /** Broken/doorway wall segments scattered as half-standing ruins. */
+    private void scatterRuins(AssetManager am, BulletAppState bulletAppState, Random rand, int count) {
+        String[] walls = {
+                DUNGEON + "wall_broken.gltf",
+                DUNGEON + "wall_cracked.gltf",
+                DUNGEON + "wall_arched.gltf",
+                DUNGEON + "wall.gltf"
+        };
+        for (int i = 0; i < count; i++) {
+            float angle = rand.nextFloat() * FastMath.TWO_PI;
+            float radius = 34f + rand.nextFloat() * 14f;
+            float x = FastMath.cos(angle) * radius;
+            float z = FastMath.sin(angle) * radius;
+            if (blocksPortalLane(x, z)) continue;
+            placePiece(walls[rand.nextInt(walls.length)], am, bulletAppState, rand, x, z,
+                    1.5f + rand.nextFloat() * 0.8f, true);
+        }
+    }
+
+    private static boolean blocksPortalLane(float x, float z) {
+        return Math.abs(x) < 7f && z > -4f && z < 34f;
+    }
+
+    private void placePiece(String path, AssetManager am, BulletAppState bulletAppState,
+                            Random rand, float x, float z, float scale, boolean block) {
+        Spatial s = StageDecor.placeFlat(stageNode, am, path, x, z, scale, rand);
+        if (block) {
+            s.updateModelBound();
+            float hw = 1.4f;
+            float hh = 2.5f;
+            if (s.getWorldBound() instanceof com.jme3.bounding.BoundingBox bbox) {
+                Vector3f ext = new Vector3f();
+                bbox.getExtent(ext);
+                hw = FastMath.clamp(Math.max(ext.x, ext.z) * 0.7f, 1f, 3f);
+                hh = FastMath.clamp(ext.y, 1.5f, 7f);
+            }
+            StageDecor.addBlocker(bulletAppState, physicsObjects, x, z, hw, hh / 2f, hw);
         }
     }
 }
