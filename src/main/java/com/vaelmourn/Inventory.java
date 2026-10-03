@@ -3,35 +3,17 @@ package com.vaelmourn;
 public class Inventory {
 
     public static final int GRID_COLS = 5;
-    public static final int GRID_ROWS = 5;
+    public static final int GRID_ROWS = 4;
     public static final int GRID_SIZE = GRID_COLS * GRID_ROWS;
 
-    /**
-     * Equipment slots.
-     *
-     * <p>Reduced to SHIELD only. The helmet/chestplate/leggings/boots slots went away
-     * with the armour tier/material system — Defense is now a Sanctuary run upgrade
-     * rather than equipment, so those four slots had nothing that could ever occupy
-     * them. The SHIELD slot stays because kite_shield is a real, usable item and its
-     * block is a combat mechanic rather than a passive stat.</p>
-     */
-    public enum EquipSlot {
-        SHIELD
-    }
 
-    public static final EquipSlot[] EQUIPMENT_SLOTS = {
-            EquipSlot.SHIELD
-    };
-
-    public static final int TOOLBAR_SIZE = 5;
+    public static final int TOOLBAR_SIZE = 6;
 
     private final Slot[] grid = new Slot[GRID_SIZE];
-    private final Slot[] equipment = new Slot[EQUIPMENT_SLOTS.length];
     private final Slot[] toolbar = new Slot[TOOLBAR_SIZE];
 
     public Inventory() {
         for (int i = 0; i < GRID_SIZE; i++) grid[i] = new Slot(null, 0);
-        for (int i = 0; i < equipment.length; i++) equipment[i] = new Slot(null, 0);
         for (int i = 0; i < TOOLBAR_SIZE; i++) toolbar[i] = new Slot(null, 0);
     }
 
@@ -40,7 +22,6 @@ public class Inventory {
      */
     public void clearAll() {
         for (Slot s : grid) s.clear();
-        for (Slot s : equipment) s.clear();
         for (Slot s : toolbar) s.clear();
     }
 
@@ -54,14 +35,6 @@ public class Inventory {
 
     public Slot[] getGrid() {
         return grid;
-    }
-
-    public Slot getEquipSlot(EquipSlot slot) {
-        return equipment[slot.ordinal()];
-    }
-
-    public Slot[] getEquipment() {
-        return equipment;
     }
 
     public Slot getToolbarSlot(int index) {
@@ -125,15 +98,6 @@ public class Inventory {
         return total >= count;
     }
 
-    /**
-     * Takes {@code count} of an item out of the inventory, emptying slots as they run
-     * dry. Toolbar slots holding the item are drained first, then the grid.
-     *
-     * <p>Callers that consume gems (the boss fight) use this instead of a bespoke path
-     * so there is exactly one way an item leaves the inventory.</p>
-     *
-     * @return true if the full count was removed
-     */
     public boolean removeItem(String itemId, int count) {
         if (itemId == null || count <= 0) return false;
         int remaining = count;
@@ -157,11 +121,7 @@ public class Inventory {
         return remaining <= 0;
     }
 
-    /**
-     * Moves slot {@code from} into {@code to}: matching stackable items merge
-     * quantities, otherwise the two slots swap. Callers must enforce
-     * slot-compatibility rules (equipment type, toolbar categories) first.
-     */
+
     public void swapMove(Slot from, Slot to) {
         if (from == null || to == null) return;
         if (from.isEmpty()) return;

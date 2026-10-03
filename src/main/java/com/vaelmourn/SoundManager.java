@@ -30,10 +30,19 @@ public class SoundManager {
     private static final Random RNG = new Random();
     private static SoundManager inst;
 
+    /**
+     * User master volume from Settings. Scales every voice (BGM, ambience, SFX)
+     * without changing their relative mix, and is clamped so a bad value from the
+     * slider can never produce an out-of-range AudioNode volume.
+     */
+    private static float masterVolume = 1f;
+
     private final AssetManager assetManager;
     private final Node root;
 
     private final Map<String, AudioNode> sfx = new HashMap<>();
+    /** Unscaled per-cue volumes, so a master-volume change can be re-applied exactly. */
+    private final Map<String, Float> sfxBase = new HashMap<>();
 
     private AudioNode bgm;
     private AudioNode oldBgm;
@@ -69,10 +78,28 @@ public class SoundManager {
         inst.tick(tpf, stage);
     }
 
+    public static float getMasterVolume() { return masterVolume; }
+
+    /** Applies a new master volume to everything already playing. */
+    public static void setMasterVolume(float v) {
+        masterVolume = Math.max(0f, Math.min(1f, v));
+        if (inst != null) inst.applyMasterVolume();
+    }
+
+    private void applyMasterVolume() {
+        if (bgm != null) bgm.setVolume(bgmVol * masterVolume);
+        if (oldBgm != null) oldBgm.setVolume(oldBgmVol * masterVolume);
+        for (Map.Entry<String, AudioNode> e : sfx.entrySet()) {
+            AudioNode node = e.getValue();
+            Float base = sfxBase.get(e.getKey());
+            if (node != null && base != null) node.setVolume(base * masterVolume);
+        }
+    }
+
     private void tick(float tpf, Stage stage) {
         if (bgm != null) {
             bgmVol += (BGM_VOLUME - bgmVol) * Math.min(1f, tpf * BGM_FADE_RATE);
-            bgm.setVolume(bgmVol);
+            bgm.setVolume(bgmVol * masterVolume);
         }
         if (oldBgm != null) {
             oldBgmVol -= tpf * BGM_FADE_OUT_RATE;
@@ -81,7 +108,7 @@ public class SoundManager {
                 oldBgm.removeFromParent();
                 oldBgm = null;
             } else {
-                oldBgm.setVolume(oldBgmVol);
+                oldBgm.setVolume(oldBgmVol * masterVolume);
             }
         }
 
@@ -164,9 +191,10 @@ public class SoundManager {
             if (node == null) {
                 node = makeNode(DIR + file, false);
                 sfx.put(file, node);
+                sfxBase.put(file, volume);
                 root.attachChild(node);
             }
-            node.setVolume(volume);
+            node.setVolume(volume * masterVolume);
             node.play();
         } catch (Exception e) {
             System.err.println("SoundManager: '" + file + "' failed: " + e.getMessage());
@@ -221,6 +249,24 @@ public class SoundManager {
     public static void playShopOpen() {
         if (inst == null) return;
         inst.play("shop_open.wav", 0.8f);
+    }
+
+    /** Bomb leave-the-hand whoosh, played on a successful Q throw. */
+    public static void playBombThrow() {
+        if (inst == null) return;
+        inst.play("bomb_throwing_sound.wav", 0.75f);
+    }
+
+    /** Detonation boom, played once per bomb when the fuse expires. */
+    public static void playBombExplosion() {
+        if (inst == null) return;
+        inst.play("bomb_explosion_sound.wav", 1f);
+    }
+
+    /** Gulp when a potion is actually consumed. */
+    public static void playPotionDrink() {
+        if (inst == null) return;
+        inst.play("potion_drinking.wav", 0.7f);
     }
 
     public static void registerBoss(String id) {

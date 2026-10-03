@@ -1,22 +1,17 @@
 package com.vaelmourn;
 
 import com.jme3.asset.AssetManager;
-import com.jme3.bounding.BoundingBox;
 import com.jme3.bullet.BulletAppState;
-import com.jme3.bullet.collision.shapes.BoxCollisionShape;
-import com.jme3.bullet.control.RigidBodyControl;
 import com.jme3.material.Material;
 import com.jme3.math.ColorRGBA;
 import com.jme3.math.FastMath;
 import com.jme3.math.Vector3f;
 import com.jme3.scene.Geometry;
-import com.jme3.scene.Node;
-import com.jme3.scene.Spatial;
 import com.jme3.scene.shape.Box;
 
 import java.util.Random;
 
-/** Hellhound Boss Arena — a volcanic caldera of lava pools and rocks around an open circle. */
+/** Hellhound Boss Arena â€” a volcanic caldera of lava pools and rocks around an open circle. */
 public class HellhoundBossStage extends BossStage {
 
     private static final String CENJI =
@@ -62,16 +57,9 @@ public class HellhoundBossStage extends BossStage {
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
 
-            Spatial stone = StageDecor.placeFlat(stageNode, assetManager,
+            StageDecor.placeSolid(stageNode, assetManager, bulletAppState, physicsObjects,
                     rocks[rand.nextInt(rocks.length)], x, z,
                     2.6f + rand.nextFloat() * 2.2f, rand);
-            stone.updateModelBound();
-            float half = 1.4f;
-            if (stone.getWorldBound() instanceof BoundingBox bbox) {
-                Vector3f ext = bbox.getExtent(new Vector3f());
-                half = FastMath.clamp((ext.x + ext.z) * 0.4f, 1.2f, 3f);
-            }
-            StageDecor.addBlocker(bulletAppState, physicsObjects, x, z, half, half, half);
         }
 
         for (int i = 0; i < 8; i++) {
@@ -79,9 +67,16 @@ public class HellhoundBossStage extends BossStage {
             float radius = getRingStart() + 3f + rand.nextFloat() * (getRingEnd() - getRingStart() - 3f);
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
-            StageDecor.placeFlat(stageNode, assetManager, crystals[rand.nextInt(crystals.length)],
-                    x, z, 2.8f + rand.nextFloat() * 1.6f, rand);
+            // crystal formations read as solid scenery but had no collider at all,
+            // so the player walked straight through them
+            StageDecor.placeSolid(stageNode, assetManager, bulletAppState, physicsObjects,
+                    crystals[rand.nextInt(crystals.length)], x, z,
+                    2.8f + rand.nextFloat() * 1.6f, rand);
         }
+
+        // Volcanic badlands carried on past the walls, unreachable and uncollided.
+        scatterOuterScenery(assetManager, rocks, 70, 7701L, 4f, 8f);
+        scatterOuterScenery(assetManager, crystals, 55, 7702L, 3f, 6f);
     }
 
     @Override

@@ -11,15 +11,16 @@ public class Item {
      * Item categories.
      *
      * <p>HELMET/CHESTPLATE/LEGGINGS/BOOTS were removed with the armour tier and
-     * material system. No item registers them, so leaving them would create
-     * unreachable branches in the equip/drop/silhouette switches. SHIELD remains.</p>
+     * material system, and SHIELD was removed when the kite shield went with the
+     * multi-weapon rework. THROWABLE covers the bomb: bought from the merchant,
+     * stacked, and thrown on a keypress rather than equipped or drunk.</p>
      */
     public enum Category {
         WEAPON,
         CONSUMABLE,
         KEY,
         MATERIAL,
-        SHIELD
+        THROWABLE
     }
 
     /** Coarse bucket every category maps into, so generic systems can ask "is this a consumable?" without knowing every specific sub-category. */
@@ -28,7 +29,8 @@ public class Item {
         EQUIPMENT,
         WEAPON,
         MATERIAL,
-        KEY
+        KEY,
+        THROWABLE
     }
 
     public enum Effect {
@@ -37,7 +39,9 @@ public class Item {
         REGEN,
         SPEED,
         STRENGTH,
-        CRIT
+        CRIT,
+        /** Thrown on use; fuses for {@link #duration} seconds then bursts for {@link #power} damage. */
+        THROW_EXPLOSIVE
     }
 
     public final String id;
@@ -88,7 +92,7 @@ public class Item {
             case CONSUMABLE -> Group.CONSUMABLE;
             case KEY -> Group.KEY;
             case MATERIAL -> Group.MATERIAL;
-            case SHIELD -> Group.EQUIPMENT;
+            case THROWABLE -> Group.THROWABLE;
         };
     }
 

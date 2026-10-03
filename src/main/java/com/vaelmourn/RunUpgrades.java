@@ -4,14 +4,18 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /**
- * Central authority for the five Sanctuary run upgrades: Attack, Speed, Defense,
- * Jump Height and Luck.
+ * Central authority for the Sanctuary run upgrades: Attack, Speed, Attack Speed,
+ * Defense, Jump Height and Luck.
  *
  * <p>Every stat spans level 1 to level 5. Level 1 is the player's unmodified base
  * value, and level 5 reaches at most 1.5x that base. The curve is deliberately
  * gradual: the first three steps are small (8%, 8%, 10%) and the last one is the
  * largest single gain (14%), so early purchases feel like a nudge rather than a
  * power spike.</p>
+ *
+ * <p>Attack Speed was added when the upgrade-shop mockup specified an "Atk SPD" card;
+ * it is what {@code PlayerStats.getAttackSpeedMultiplier()} multiplies by. Jump Height
+ * remains a valid stat and the jump code still reads it.</p>
  *
  * <p>These are RUN upgrades. Nothing here writes to the permanent base stats in
  * {@link PlayerStats}; it only exposes multipliers that the existing stat
@@ -38,6 +42,7 @@ public final class RunUpgrades {
     public enum Stat {
         ATTACK("Attack"),
         SPEED("Speed"),
+        ATTACK_SPEED("Attack Speed"),
         DEFENSE("Defense"),
         JUMP("Jump Height"),
         LUCK("Luck");

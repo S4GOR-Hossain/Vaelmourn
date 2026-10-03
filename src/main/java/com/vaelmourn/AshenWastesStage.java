@@ -180,7 +180,7 @@ private static final float MIN_ELEVATION = -14f;     // the spire-pit floor goes
     private List<EnemyController> spawnAuthored(AssetManager assetManager, Node parentNode,
                                                 BulletAppState bulletAppState, int loopCount) {
         List<EnemyController> enemies = new ArrayList<>();
-        int enemyCount = authoredEnemyCount() + (loopCount / 4);
+        int enemyCount = Stage.loopedEnemyCount(authoredEnemyCount(), loopCount);
         int tier = authoredTier();
         float scale = authoredScale();
         Random rand = new Random(7 + loopCount * 13);
@@ -448,9 +448,16 @@ private static final float MIN_ELEVATION = -14f;     // the spire-pit floor goes
     /** Sampled so the exit portal rests on this stage's terrain rather than a
      *  fixed height, which left it buried in the higher profiles. */
     @Override
-    public Vector3f getExitPortalGround() {
-        return new Vector3f(0f, heightAt(0f, 25f), 25f);
-    }
+public Vector3f getExitPortalGround() {
+            return new Vector3f(0f, heightAt(0f, 25f), 25f);
+        }
+
+        /** Thrown bombs integrate their own gravity, so they need the same terrain
+         *  height the mesh was built from or they sink into the dunes. */
+        @Override
+        public float groundHeightAt(float x, float z) {
+            return heightAt(x, z);
+        }
 
     private static float profileFor(int variant, float x, float z) {
         switch (variant) {
@@ -1239,13 +1246,12 @@ private static final float MIN_ELEVATION = -14f;     // the spire-pit floor goes
         s.setLocalTranslation(x, y + lift, z);
         stageNode.attachChild(s);
 
-        // every authored rock, boulder, geode and debris gets a solid hitbox so
-        // neither the player nor enemies can brush straight through terrain props
-        BoxCollisionShape shape = new BoxCollisionShape(
-                new Vector3f(scale * 0.42f, scale * 0.5f, scale * 0.42f));
-        RigidBodyControl physics = new RigidBodyControl(shape, 0f);
-        physics.setPhysicsLocation(new Vector3f(x, y + scale * 0.5f, z));
-        bulletAppState.getPhysicsSpace().add(physics);
-        physicsObjects.add(physics);
+        // every authored rock, boulder, geode and debris gets a solid hitbox so neither the
+        // player nor enemies can brush straight through terrain props. The box used to
+        // be guessed from the placement scale alone, which made wide flat geodes grow
+        // a too-tall blocker and squat boulders too short to step onto; it is now
+        // measured off the placed model's own bounding box, so it matches the art in
+        // every variant of this biome.
+        StageDecor.addBlockerFor(bulletAppState, physicsObjects, s);
     }
 }

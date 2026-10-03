@@ -2,7 +2,6 @@ package com.vaelmourn;
 
 import com.jme3.anim.AnimComposer;
 import com.jme3.math.FastMath;
-import com.jme3.math.Ray;
 import com.jme3.math.Vector3f;
 import com.jme3.renderer.Camera;
 import com.jme3.scene.Node;
@@ -23,8 +22,6 @@ public class CombatController {
 
     private final List<EnemyController> enemies = new ArrayList<>();
 
-    private boolean adsHeld = false;
-    private boolean blockHeld = false;
     private boolean heavyCharging = false;
     private float heavyChargeTime = 0f;
     private float parryTimer = 0f;
@@ -36,8 +33,9 @@ public class CombatController {
 
     private static final float MELEE_LIGHT_HIT_SHAKE = 0.05f;
     private static final float MELEE_HEAVY_HIT_SHAKE = 0.10f;
-    private static final float RANGED_HIT_SHAKE = 0.08f;
-    private static final float SHIELD_PUSH_HIT_SHAKE = 0.12f;
+
+    /** Where thrown bombs go. Null until the game hands one over. */
+    private Bombs bombs;
 
     public CombatController(
             Camera cam,
@@ -56,8 +54,6 @@ public class CombatController {
 
     public void equip(String weaponId) {
         equipped = weapons.create(weaponId);
-        adsHeld = false;
-        blockHeld = false;
         heavyCharging = false;
         heavyChargeTime = 0f;
         // push the weapon's own stats through so stat/buff math uses the real weapon
@@ -96,77 +92,54 @@ public class CombatController {
         if (enemies != null) this.enemies.addAll(enemies);
     }
 
-    public boolean isBlocking() {
-        return blockHeld;
-    }
-
-    public float getBlockReduction() {
-        if (equipped == null) return 0f;
-        if (equipped.def.group != Weapons.WeaponGroup.SPECIAL) return 0f;
-        return blockHeld ? equipped.def.blockReduction : 0f;
-    }
-
+    /**
+     * The sword is the only weapon, so the old per-group primary branch collapsed into a
+     * straight light swing. The ranged and shield-push paths went away with their weapons.
+     */
     public void onPrimaryPressed() {
         if (equipped == null || !equipped.ready()) return;
-
-        switch (equipped.def.group) {
-            case MELEE:
-                doMeleeLight();
-                break;
-            case RANGED:
-                doRangedFire();
-                break;
-            case SPECIAL:
-                doShieldPush();
-                break;
-        }
+        doMeleeLight();
     }
 
+    /**
+     * Throws a bomb on the same cooldown as a sword swing, so the two share one rhythm.
+     *
+     * @return true if a bomb was thrown, false if on cooldown, out of bombs, or the
+     *         live-bomb cap is reached - the caller only decrements the stack on true
+     */
+    public boolean throwBomb() {
+        if (bombs == null || equipped == null || !equipped.ready()) return false;
+        if (!bombs.throwFrom(cam.getLocation(), cam.getDirection())) return false;
+
+        // heavy swing clip as the throwing gesture, but deliberately no
+        // playSwordSwing() here: a blade swoosh on a bomb throw reads wrong
+        playAnimSafe("Attack_Heavy");
+        SoundManager.playBombThrow();
+        // same cooldown as a sword attack, so spamming one weapon blocks the other
+        triggerCooldown();
+        return true;
+    }
+
+    public void setBombs(Bombs bombs) {
+        this.bombs = bombs;
+    }
+
+    /** Hold to charge a heavy blow; a short parry window opens while held. */
     public void onSecondaryPressed() {
         if (equipped == null) return;
-
-        switch (equipped.def.group) {
-            case MELEE:
-                // start the heavy charge and open a short parry window
-                heavyCharging = true;
-                heavyChargeTime = 0f;
-                parryTimer = equipped.def.parryWindow;
-                playAnimSafe("Parry");
-                break;
-
-            case RANGED:
-                adsHeld = true;
-                targetFov = equipped.def.adsFov;
-                break;
-
-            case SPECIAL:
-                blockHeld = true;
-                playAnimSafe("Block");
-                break;
-        }
+        heavyCharging = true;
+        heavyChargeTime = 0f;
+        parryTimer = equipped.def.parryWindow;
+        playAnimSafe("Parry");
     }
 
     public void onSecondaryReleased() {
         if (equipped == null) return;
-
-        switch (equipped.def.group) {
-            case MELEE:
-                if (heavyCharging && equipped.ready()) {
-                    doMeleeHeavy();
-                }
-                heavyCharging = false;
-                heavyChargeTime = 0f;
-                break;
-
-            case RANGED:
-                adsHeld = false;
-                targetFov = defaultFov;
-                break;
-
-            case SPECIAL:
-                blockHeld = false;
-                break;
+        if (heavyCharging && equipped.ready()) {
+            doMeleeHeavy();
         }
+        heavyCharging = false;
+        heavyChargeTime = 0f;
     }
 
     public void update(float tpf) {
@@ -207,58 +180,6 @@ public class CombatController {
         triggerCooldown();
     }
 
-    private void doRangedFire() {
-        // Pure hitscan: whichever enemy sits closest to the camera ray eats the damage.
-        Ray ray = new Ray(cam.getLocation(), cam.getDirection());
-        float best = Float.MAX_VALUE;
-        EnemyController target = null;
-        for (EnemyController e : enemies) {
-            if (e.isDead()) continue;
-            Vector3f rel = e.getPosition().subtract(ray.origin);
-            float t = rel.dot(ray.direction);
-            if (t < 0f || t > equipped.def.range) continue;
-            Vector3f proj = ray.origin.add(ray.direction.mult(t));
-            if (proj.distance(e.getPosition()) < 0.7f && t < best) {
-                best = t;
-                target = e;
-            }
-        }
-        if (target != null) {
-            float dealt = finalizeDamage(equipped.def.damage);
-            target.takeDamage(dealt);
-            Vector3f away = target.getPosition().subtract(ray.origin);
-            away.y = 0f;
-            if (away.lengthSquared() > 1e-4f) {
-                target.applyKnockback(away.normalizeLocal(), 12f);
-            }
-            if (effects != null) effects.onEnemyHit(target, dealt, target.isDead(), RANGED_HIT_SHAKE);
-            SoundManager.playPlayerHit();
-        }
-        playAnimSafe("Shoot");
-        notifySwing(false);
-        triggerCooldown();
-    }
-
-    private void doShieldPush() {
-        Vector3f forward = cam.getDirection().normalizeLocal();
-        for (EnemyController e : enemies) {
-            if (e.isDead()) continue;
-            Vector3f to = e.getPosition().subtract(playerNode.getWorldTranslation());
-            to.y = 0f;
-            if (to.length() > equipped.def.range + 0.5f) continue;
-            if (forward.dot(to.normalizeLocal()) > 0.5f) {
-                float dealt = finalizeDamage(equipped.def.damage);
-                e.takeDamage(dealt);
-                e.applyKnockback(to.normalizeLocal(), 22f);
-                if (effects != null) effects.onEnemyHit(e, dealt, e.isDead(), SHIELD_PUSH_HIT_SHAKE);
-                SoundManager.playPlayerHit();
-            }
-        }
-        playAnimSafe("Shield_Push");
-        notifySwing(true);
-        triggerCooldown();
-    }
-
     private void applyMeleeArc(float damage, float reach, float arcDeg, float shakeAmp) {
         if (enemies.isEmpty()) return;
         Vector3f origin = playerNode.getWorldTranslation();
@@ -267,7 +188,7 @@ public class CombatController {
         float arcHalf = (arcDeg * FastMath.DEG_TO_RAD) / 2f;
         for (EnemyController e : enemies) {
             if (e.isDead()) continue;
-            Vector3f to = e.getPosition().subtract(origin);
+            Vector3f to = e.getPosition().subtract(origin.clone());
             to.y = 0f;
             float dist = to.length();
             if (dist > reach + 0.5f) continue; // + a touch of slack for the enemy radius
@@ -302,8 +223,34 @@ public class CombatController {
 
     private void playAnimSafe(String clip) {
         if (animComposer == null || clip == null) return;
-        if (animComposer.getAnimClipsNames().contains(clip)) {
-            animComposer.setCurrentAction(clip);
+        String mapped = clip;
+        switch (clip) {
+            case "Attack_Light":
+                if (hasClip("Sword_Slash")) mapped = "Sword_Slash";
+                else if (hasClip("Punch_Left")) mapped = "Punch_Left";
+                break;
+            case "Attack_Heavy":
+                if (hasClip("Sword_Slash")) mapped = "Sword_Slash";
+                else if (hasClip("Punch_Right")) mapped = "Punch_Right";
+                break;
+            case "Parry":
+                if (hasClip("Idle_Sword")) mapped = "Idle_Sword";
+                else if (hasClip("Idle")) mapped = "Idle";
+                break;
+            default:
+                mapped = clip;
+                break;
         }
+        if (mapped != null && hasClip(mapped)) {
+            animComposer.setCurrentAction(mapped);
+        }
+    }
+
+    private boolean hasClip(String clip) {
+        if (animComposer == null || clip == null) return false;
+        for (String c : animComposer.getAnimClipsNames()) {
+            if (c.equals(clip)) return true;
+        }
+        return false;
     }
 }

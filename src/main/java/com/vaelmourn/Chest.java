@@ -113,7 +113,9 @@ public class Chest implements Interactable {
 
     @Override
     public void interact() {
-        if (opened) return; // one-time loot, already opened
+        // Reopenable: only stop when there is nothing left to take.
+        // (ChestUI removes looted stacks from lootItems/lootCounts.)
+        if (lootItems.isEmpty()) return;
 
         opened = true;
         System.out.println("Chest opened! Contains " + lootItems.size() + " item stacks.");

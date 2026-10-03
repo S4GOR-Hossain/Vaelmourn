@@ -584,7 +584,12 @@ public class FrozenDepthsStage implements Stage {
         // ramp is applied here so stages 2-4 keep their intended difficulty and 1
         // stays exactly as it was.
         float scale = 1f + (variant - 1) * 0.4f;
-        int reinforcements = loopCount / 3;
+        // Each arena's authored pad holds 4. The first wrap doubles every arena by adding
+        // that many again, and later wraps add up to the 4x ceiling. The opening run
+        // is untouched: reinforcements stay 0 until the player beats the Fallen King.
+        int reinforcements = loopCount <= 0
+                ? 0
+                : Stage.loopedEnemyCount(perArena, loopCount);
         String[] arenaNames = arenaNamesFor(variant);
         int modelCursor = variant % ENEMY_MODELS.length;
         for (int a = 0; a < arenaCount; a++) {
@@ -664,9 +669,17 @@ public class FrozenDepthsStage implements Stage {
      *  portal sits on the portal meadow instead of a fixed height. Legacy variants
      *  use a flat plane at zero, which the interface default already matches. */
     @Override
-    public Vector3f getExitPortalGround() {
-        return new Vector3f(0f, heightAt(0f, 25f), 25f);
-    }
+public Vector3f getExitPortalGround() {
+            return new Vector3f(0f, heightAt(0f, 25f), 25f);
+        }
+
+        /** Thrown bombs integrate their own gravity, so they need the same terrain
+         *  height the mesh was built from or they sink into the ice shelves. Legacy
+         *  variants stay flat at zero, which the interface default already matches. */
+        @Override
+        public float groundHeightAt(float x, float z) {
+            return heightAt(x, z);
+        }
 
     // ============================================ the height field
 

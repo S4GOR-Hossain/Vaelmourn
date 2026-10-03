@@ -1,16 +1,14 @@
 package com.vaelmourn;
 
 import com.jme3.asset.AssetManager;
-import com.jme3.bounding.BoundingBox;
 import com.jme3.bullet.BulletAppState;
 import com.jme3.math.ColorRGBA;
 import com.jme3.math.FastMath;
 import com.jme3.math.Vector3f;
-import com.jme3.scene.Spatial;
 
 import java.util.Random;
 
-/** Beekeeper Boss Arena — a jungle clearing walled in by trees around a big open centre. */
+/** Beekeeper Boss Arena â€” a jungle clearing walled in by trees around a big open centre. */
 public class BeekeeperBossStage extends BossStage {
 
     private static final String KAYKIT =
@@ -62,17 +60,16 @@ public class BeekeeperBossStage extends BossStage {
             float radius = getRingStart() + 1f + rand.nextFloat() * (getRingEnd() - getRingStart() - 1f);
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
-            Spatial rock = StageDecor.placeFlat(stageNode, assetManager,
+            // bushes above stay walk-through groundcover; the rocks do not
+            StageDecor.placeSolid(stageNode, assetManager, bulletAppState, physicsObjects,
                     rocks[rand.nextInt(rocks.length)], x, z,
                     3f + rand.nextFloat() * 2.5f, rand);
-            rock.updateModelBound();
-            float half = 1.6f;
-            if (rock.getWorldBound() instanceof BoundingBox bbox) {
-                Vector3f ext = bbox.getExtent(new Vector3f());
-                half = FastMath.clamp(Math.max(ext.x, ext.z) * 0.5f, 1.4f, 3.5f);
-            }
-            StageDecor.addBlocker(bulletAppState, physicsObjects, x, z, half, half, half);
         }
+
+        // Grove carried on past the walls, unreachable and uncollided.
+        scatterOuterScenery(assetManager, TREE_MODELS, 90, 3301L, 4.5f, 8f);
+        scatterOuterScenery(assetManager, rocks, 30, 3302L, 3f, 5.5f);
+        scatterOuterScenery(assetManager, bushes, 55, 3303L, 2f, 3.5f);
     }
 
     @Override

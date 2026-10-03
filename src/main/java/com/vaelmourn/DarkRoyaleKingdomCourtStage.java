@@ -10,14 +10,13 @@ import com.jme3.math.FastMath;
 import com.jme3.math.Vector3f;
 import com.jme3.scene.Geometry;
 import com.jme3.scene.Node;
-import com.jme3.scene.Spatial;
 import com.jme3.scene.shape.Box;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-/** Dark Royale Kingdom Court — Stage 5 biome (last biome), 3 variants then the Fallen King arena. */
+/** Dark Royale Kingdom Court â€” Stage 5 biome (last biome), 3 variants then the Fallen King arena. */
 public class DarkRoyaleKingdomCourtStage implements Stage {
 
     private static final float HALF_EXTENT = 60f;
@@ -46,7 +45,7 @@ public class DarkRoyaleKingdomCourtStage implements Stage {
         parentNode.attachChild(stageNode);
 
         buildGroundPlane(assetManager, bulletAppState);
-        buildBoundaryWalls(bulletAppState);
+        buildBoundaryWalls(assetManager, bulletAppState);
         buildCourt(assetManager, bulletAppState);
     }
 
@@ -65,7 +64,7 @@ public class DarkRoyaleKingdomCourtStage implements Stage {
         List<EnemyController> enemies = new ArrayList<>();
 
         // the court gets mean fast: tier-3 elites at a heavy scale, more of them per stage/loop
-        int enemyCount = 8 + variant + (loopCount / 2);
+        int enemyCount = Stage.loopedEnemyCount(8 + variant, loopCount);
         float scale = 1.75f + variant * 0.35f;
         Random rand = new Random(88 + variant * 7 + loopCount);
 
@@ -138,31 +137,39 @@ public class DarkRoyaleKingdomCourtStage implements Stage {
         physicsObjects.add(physics);
     }
 
-    private void buildBoundaryWalls(BulletAppState bulletAppState) {
+    private void buildBoundaryWalls(AssetManager assetManager, BulletAppState bulletAppState) {
         float wallHeight = 10f;
         float wallThickness = 1f;
 
-        createWall(new Vector3f(0, wallHeight / 2f, HALF_EXTENT),
-                   new Vector3f(HALF_EXTENT, wallHeight / 2f, wallThickness), bulletAppState);
-        createWall(new Vector3f(0, wallHeight / 2f, -HALF_EXTENT),
-                   new Vector3f(HALF_EXTENT, wallHeight / 2f, wallThickness), bulletAppState);
-        createWall(new Vector3f(HALF_EXTENT, wallHeight / 2f, 0),
-                   new Vector3f(wallThickness, wallHeight / 2f, HALF_EXTENT), bulletAppState);
-        createWall(new Vector3f(-HALF_EXTENT, wallHeight / 2f, 0),
-                   new Vector3f(wallThickness, wallHeight / 2f, HALF_EXTENT), bulletAppState);
-    }
+        // Collision only, no visual: the court already reads as enclosed by its
+        // facades and perimeter scenery, so a rendered border would spoil it.
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(0, wallHeight / 2f, HALF_EXTENT),
+                new Vector3f(HALF_EXTENT, wallHeight / 2f, wallThickness));
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(0, wallHeight / 2f, -HALF_EXTENT),
+                new Vector3f(HALF_EXTENT, wallHeight / 2f, wallThickness));
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(HALF_EXTENT, wallHeight / 2f, 0),
+                new Vector3f(wallThickness, wallHeight / 2f, HALF_EXTENT));
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(-HALF_EXTENT, wallHeight / 2f, 0),
+                new Vector3f(wallThickness, wallHeight / 2f, HALF_EXTENT));
 
-    private void createWall(Vector3f position, Vector3f halfExtents, BulletAppState bulletAppState) {
-        BoxCollisionShape shape = new BoxCollisionShape(halfExtents);
-        RigidBodyControl physics = new RigidBodyControl(shape, 0);
-        physics.setPhysicsLocation(position);
-        bulletAppState.getPhysicsSpace().add(physics);
-        physicsObjects.add(physics);
+        for (int sx = -1; sx <= 1; sx += 2) {
+            for (int sz = -1; sz <= 1; sz += 2) {
+                StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                        new Vector3f(sx * (HALF_EXTENT - wallThickness * 2f),
+                                wallHeight / 2f,
+                                sz * (HALF_EXTENT - wallThickness * 2f)),
+                        new Vector3f(wallThickness * 3f, wallHeight / 2f, wallThickness * 3f));
+            }
+        }
     }
 
     private void buildCourt(AssetManager assetManager, BulletAppState bulletAppState) {
         // variant re-seeds the ornament layout; each stage walks one step deeper
-        // into the fallen castle — gate approach, courtyard, then the inner hall.
+        // into the fallen castle â€” gate approach, courtyard, then the inner hall.
         Random rand = new Random(102 + variant);
 
         if (variant == 1) {
@@ -177,44 +184,35 @@ public class DarkRoyaleKingdomCourtStage implements Stage {
         }
     }
 
-    /** Stage 1 of 3: a monumental ruined gate flanking the portal, towers and banners. */
+    /** Stage 1 of 3: a monumental ruined gate flanking the portal, flanked by twin towers. */
     private void buildExteriorGate(AssetManager am, BulletAppState bulletAppState, Random rand) {
         placePiece(DUNGEON + "wall_archedwindow_gated.gltf", am, bulletAppState, rand, -7f, 31f, 1.7f, true);
         placePiece(DUNGEON + "wall_archedwindow_gated.gltf", am, bulletAppState, rand, 7f, 31f, 1.7f, true);
-        placePiece(DUNGEON + "pillar_decorated.gltf", am, bulletAppState, rand, -16f, 33f, 1.6f, true);
-        placePiece(DUNGEON + "pillar_decorated.gltf", am, bulletAppState, rand, 16f, 33f, 1.6f, true);
-        placePiece(DUNGEON + "wall_doorway.gltf", am, bulletAppState, rand, 0f, -32f, 1.6f, true);
-        placePiece(DUNGEON + "torch_mounted.gltf", am, bulletAppState, rand, -9.5f, 31.5f, 1.2f, false);
-        placePiece(DUNGEON + "torch_mounted.gltf", am, bulletAppState, rand, 9.5f, 31.5f, 1.2f, false);
-        placePiece(DUNGEON + "banner_triple_red.gltf", am, bulletAppState, rand, -3.5f, 31.5f, 1.5f, false);
-        placePiece(DUNGEON + "banner_shield_blue.gltf", am, bulletAppState, rand, 3.5f, 31.5f, 1.5f, false);
+        placePiece(DUNGEON + "pillar.gltf", am, bulletAppState, rand, -16f, 33f, 1.6f, true);
+        placePiece(DUNGEON + "pillar.gltf", am, bulletAppState, rand, 16f, 33f, 1.6f, true);
+        placePiece(DUNGEON + "wall_arched.gltf", am, bulletAppState, rand, 0f, -32f, 1.6f, true);
     }
 
-    /** Stage 2 of 3: a ceremonial colonnade ring with banners and war stores. */
+    /** Stage 2 of 3: a ceremonial colonnade ring with war stores. */
     private void buildCourtyardRing(AssetManager am, BulletAppState bulletAppState, Random rand) {
         int pillars = 16;
         for (int i = 0; i < pillars; i++) {
             float angle = (i / (float) pillars) * FastMath.TWO_PI;
             float x = FastMath.cos(angle) * 34f;
             float z = FastMath.sin(angle) * 34f;
-            placePiece(DUNGEON + "pillar_decorated.gltf", am, bulletAppState, rand, x, z, 1.7f, true);
-            if (i % 2 == 0) {
-                float bx = FastMath.cos(angle + 0.15f) * 31f;
-                float bz = FastMath.sin(angle + 0.15f) * 31f;
-                String banner = rand.nextBoolean() ? DUNGEON + "banner_red.gltf" : DUNGEON + "banner_white.gltf";
-                placePiece(banner, am, bulletAppState, rand, bx, bz, 1.4f, false);
-            }
+            placePiece(DUNGEON + "pillar.gltf", am, bulletAppState, rand, x, z, 1.7f, true);
         }
         for (int i = 0; i < 4; i++) {
             float angle = i * FastMath.HALF_PI + FastMath.QUARTER_PI;
             float x = FastMath.cos(angle) * 26f;
             float z = FastMath.sin(angle) * 26f;
-            placePiece(DUNGEON + "crates_stacked.gltf", am, bulletAppState, rand, x, z, 1.5f, false);
-            placePiece(DUNGEON + "barrel_large.gltf", am, bulletAppState, rand, x + 3f, z, 1.3f, false);
+            // crates and barrels are solid war stores, and used to be walked through
+            placePiece(DUNGEON + "crates_stacked.gltf", am, bulletAppState, rand, x, z, 1.5f, true);
+            placePiece(DUNGEON + "barrel_small_stack.gltf", am, bulletAppState, rand, x + 3f, z, 1.3f, true);
         }
     }
 
-    /** Stage 3 of 3: the inner hall — torch-lit columns and garrison stores. */
+    /** Stage 3 of 3: the inner hall â€” a column ring and garrison stores. */
     private void buildInnerHall(AssetManager am, BulletAppState bulletAppState, Random rand) {
         int columns = 22;
         for (int i = 0; i < columns; i++) {
@@ -222,16 +220,14 @@ public class DarkRoyaleKingdomCourtStage implements Stage {
             float x = FastMath.cos(angle) * 30f;
             float z = FastMath.sin(angle) * 30f;
             placePiece(DUNGEON + "column.gltf", am, bulletAppState, rand, x, z, 1.8f, true);
-            if (i % 3 == 0) {
-                placePiece(DUNGEON + "torch_mounted.gltf", am, bulletAppState, rand, x - 1.5f, z, 1.2f, false);
-            }
         }
         for (int i = 0; i < 4; i++) {
             float p = (float) (34 + i * 2);
-            placePiece(DUNGEON + "table_small.gltf", am, bulletAppState, rand, p, -p, 1.3f, false);
-            placePiece(DUNGEON + "box_stacked.gltf", am, bulletAppState, rand, -p, p, 1.5f, false);
-            placePiece(DUNGEON + "shelf_small_candles.gltf", am, bulletAppState, rand, -p, -p, 1.3f, false);
-            placePiece(DUNGEON + "barrel_small_stack.gltf", am, bulletAppState, rand, p, p, 1.3f, false);
+            // boxes, crates and barrels are all solid garrison stores
+            placePiece(DUNGEON + "box_stacked.gltf", am, bulletAppState, rand, p, -p, 1.3f, true);
+            placePiece(DUNGEON + "box_stacked.gltf", am, bulletAppState, rand, -p, p, 1.5f, true);
+            placePiece(DUNGEON + "crates_stacked.gltf", am, bulletAppState, rand, -p, -p, 1.3f, true);
+            placePiece(DUNGEON + "barrel_small_stack.gltf", am, bulletAppState, rand, p, p, 1.3f, true);
         }
     }
 
@@ -258,20 +254,23 @@ public class DarkRoyaleKingdomCourtStage implements Stage {
         return Math.abs(x) < 7f && z > -4f && z < 34f;
     }
 
+    /**
+     * Places one piece of dungeon scenery and gives it collision sized off its own
+     * bounding box.
+     *
+     * <p>Previously every prop opted in with a hand-written measure-and-clamp loop, and
+     * the small solid props â€” barrels, crates, tables, boxes, shelves â€” all opted out, so
+     * the player walked through the entire war stores of the court. {@code block} is kept
+     * only for the flat decorative dressing (banners, wall torches) that should stay
+     * walk-through.</p>
+     */
     private void placePiece(String path, AssetManager am, BulletAppState bulletAppState,
                             Random rand, float x, float z, float scale, boolean block) {
-        Spatial s = StageDecor.placeFlat(stageNode, am, path, x, z, scale, rand);
         if (block) {
-            s.updateModelBound();
-            float hw = 1.4f;
-            float hh = 2.5f;
-            if (s.getWorldBound() instanceof com.jme3.bounding.BoundingBox bbox) {
-                Vector3f ext = new Vector3f();
-                bbox.getExtent(ext);
-                hw = FastMath.clamp(Math.max(ext.x, ext.z) * 0.7f, 1f, 3f);
-                hh = FastMath.clamp(ext.y, 1.5f, 7f);
-            }
-            StageDecor.addBlocker(bulletAppState, physicsObjects, x, z, hw, hh / 2f, hw);
+            StageDecor.placeSolid(stageNode, am, bulletAppState, physicsObjects, path,
+                    x, z, scale, rand);
+        } else {
+            StageDecor.placeFlat(stageNode, am, path, x, z, scale, rand);
         }
     }
 }

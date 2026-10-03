@@ -1,7 +1,6 @@
 package com.vaelmourn;
 
 import com.jme3.asset.AssetManager;
-import com.jme3.bounding.BoundingBox;
 import com.jme3.bullet.BulletAppState;
 import com.jme3.bullet.collision.shapes.BoxCollisionShape;
 import com.jme3.bullet.control.RigidBodyControl;
@@ -10,13 +9,11 @@ import com.jme3.math.ColorRGBA;
 import com.jme3.math.FastMath;
 import com.jme3.math.Vector3f;
 import com.jme3.scene.Geometry;
-import com.jme3.scene.Node;
-import com.jme3.scene.Spatial;
 import com.jme3.scene.shape.Box;
 
 import java.util.Random;
 
-/** Fallen King Boss Arena — the final fight: a dark royal court of tall pillars and an overturned throne. */
+/** Fallen King Boss Arena â€” the final fight: a dark royal court of tall pillars and an overturned throne. */
 public class FallenKingBossStage extends BossStage {
 
     private static final String DUNGEON =
@@ -26,7 +23,6 @@ public class FallenKingBossStage extends BossStage {
     protected void buildArenaDecor(AssetManager assetManager, BulletAppState bulletAppState) {
         Random rand = new Random(775);
         String[] pillars = {
-                DUNGEON + "pillar_decorated.gltf",
                 DUNGEON + "pillar.gltf",
                 DUNGEON + "column.gltf"
         };
@@ -37,58 +33,36 @@ public class FallenKingBossStage extends BossStage {
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
 
-            Spatial pillar = StageDecor.placeFlat(stageNode, assetManager,
+            StageDecor.placeSolid(stageNode, assetManager, bulletAppState, physicsObjects,
                     pillars[rand.nextInt(pillars.length)], x, z,
                     3.5f + rand.nextFloat() * 1.5f, rand);
-            pillar.updateModelBound();
-            float hw = 1.5f;
-            float hh = 6f;
-            if (pillar.getWorldBound() instanceof BoundingBox bbox) {
-                Vector3f ext = bbox.getExtent(new Vector3f());
-                hw = FastMath.clamp(Math.max(ext.x, ext.z) * 0.7f, 1.2f, 2.6f);
-                hh = FastMath.clamp(ext.y, 4f, 9f);
-            }
-            StageDecor.addBlocker(bulletAppState, physicsObjects, x, z, hw, hh / 2f, hw);
         }
 
-        // broken banner wall backdrop along the west balk, so the court reads as ruined
+        // broken wall backdrop along the west balk, so the court reads as ruined
         String[] walls = {
                 DUNGEON + "wall.gltf",
                 DUNGEON + "wall_broken.gltf",
                 DUNGEON + "wall_arched.gltf"
-        };
-        String[] banners = {
-                DUNGEON + "banner_red.gltf",
-                DUNGEON + "banner_shield_blue.gltf",
-                DUNGEON + "banner_triple_red.gltf"
         };
         for (int i = 0; i < 5; i++) {
             float angle = FastMath.PI * (0.74f + 0.13f * i);
             float radius = 43f + rand.nextFloat() * 3f;
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
-            Spatial wall = StageDecor.placeFlat(stageNode, assetManager,
+            StageDecor.placeSolid(stageNode, assetManager, bulletAppState, physicsObjects,
                     walls[i % walls.length], x, z, 2f + rand.nextFloat(), rand);
-            wall.updateModelBound();
-            float hw = 2f;
-            float hh = 3f;
-            if (wall.getWorldBound() instanceof BoundingBox bbox) {
-                Vector3f ext = bbox.getExtent(new Vector3f());
-                hw = FastMath.clamp(Math.max(ext.x, ext.z) * 0.7f, 1.5f, 4f);
-                hh = FastMath.clamp(ext.y, 2f, 5f);
-            }
-            StageDecor.addBlocker(bulletAppState, physicsObjects, x, z, hw, hh / 2f, hw);
-            StageDecor.placeFlat(stageNode, assetManager,
-                    banners[rand.nextInt(banners.length)], x - 2.2f, z,
-                    1.3f + rand.nextFloat() * 0.4f, rand);
         }
 
         // the fallen king's own palace looming behind the north rim
-        Spatial castle = StageDecor.placeFlat(stageNode, assetManager,
-                "Models/Environment/LowPolyCastle/LowPolyCastle/Models/LowPolyCastle.glb",
-                0f, 51f, 1.2f, rand);
-        castle.rotate(0, FastMath.PI, 0);
-        castle.updateModelBound();
+        // The fallen king's palace looming behind the north rim. This was a single
+        // LowPolyCastle.glb, but that model is not in the repo at all, so the silhouette
+        // is assembled from dungeon-pack pieces instead. Visual only: the collider below is
+        // unchanged and none of this is reachable, since the combat disc ends at radius 36.
+        StageDecor.placeFlat(stageNode, assetManager, DUNGEON + "wall_archedwindow_gated.gltf", 0f, 51f, 2.4f, rand);
+        StageDecor.placeFlat(stageNode, assetManager, DUNGEON + "pillar.gltf", -9f, 50f, 2.8f, rand);
+        StageDecor.placeFlat(stageNode, assetManager, DUNGEON + "pillar.gltf", 9f, 50f, 2.8f, rand);
+        StageDecor.placeFlat(stageNode, assetManager, DUNGEON + "wall.gltf", -19f, 52f, 1.8f, rand);
+        StageDecor.placeFlat(stageNode, assetManager, DUNGEON + "wall.gltf", 19f, 52f, 1.8f, rand);
         StageDecor.addBlocker(bulletAppState, physicsObjects, 0f, 51f, 22f, 9f, 14f);
 
         float throneX = -26f;
@@ -127,6 +101,11 @@ public class FallenKingBossStage extends BossStage {
         thronePhysics.setPhysicsLocation(new Vector3f(throneX, 0.8f, throneZ));
         bulletAppState.getPhysicsSpace().add(thronePhysics);
         physicsObjects.add(thronePhysics);
+
+        // Ruined court continuing past the walls, unreachable and uncollided.
+        scatterOuterScenery(assetManager, pillars, 60, 9901L, 4f, 7f);
+        scatterOuterScenery(assetManager, walls, 45, 9902L, 4f, 7f);
+        // the banner group was dropped: banner_*.gltf is no longer in the pack
     }
 
     @Override
@@ -205,6 +184,6 @@ public class FallenKingBossStage extends BossStage {
 
     @Override
     public int getStageIndex() {
-        return 28; // the loop's last stage — beating him wraps back to the Sanctuary
+        return 28; // the loop's last stage â€” beating him wraps back to the Sanctuary
     }
 }

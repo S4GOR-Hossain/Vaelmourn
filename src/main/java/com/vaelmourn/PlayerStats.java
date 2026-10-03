@@ -41,7 +41,8 @@ public class PlayerStats {
     private int soulDust = 0;
 
     private float baseArmor = 10f;
-    private float baseMoveSpeed = 29f;
+    // 1.5x the original 29f run speed, matching the dodge scaling in ForestBiome
+    private float baseMoveSpeed = 43.5f;
     private float baseWeaponDamage = 8f;
     private float baseWeaponAttackSpeed = 1.2f;
 
@@ -104,14 +105,13 @@ public class PlayerStats {
         // Defense run-upgrade scales the armor total itself, so it flows through the
         // project's existing 100/(100+armor) mitigation curve rather than introducing
         // a second damage-reduction formula.
-        return runUpgrades.apply(RunUpgrades.Stat.DEFENSE, baseArmor + defenseFromEquipment());
+        return runUpgrades.apply(RunUpgrades.Stat.DEFENSE, baseArmor);
     }
 
-    /** Movement speed; equipment adds flat, speed potion adds a %, slow debuff removes
-     *  one, and the Speed run-upgrade scales the whole result. */
+    /** Movement speed; the speed potion adds a %, the slow debuff removes one, and the
+     *  Speed run-upgrade scales the whole result. */
     public float getMovementSpeed() {
-        float withEquipment = baseMoveSpeed + moveSpeedFromEquipment();
-        return runUpgrades.apply(RunUpgrades.Stat.SPEED, withEquipment)
+        return runUpgrades.apply(RunUpgrades.Stat.SPEED, baseMoveSpeed)
                 * (1f + speedPower) * getSlowMultiplier();
     }
 
@@ -130,7 +130,10 @@ public class PlayerStats {
     }
 
     public float getAttackSpeedMultiplier() {
-        return 1f + speedPower;
+        // speed potion raises it, and the Attack Speed run-upgrade scales the whole
+        // result, so both stack through the one value every attack reads.
+        return (1f + speedPower)
+                * runUpgrades.getMultiplier(RunUpgrades.Stat.ATTACK_SPEED);
     }
 
     public float getDamageMultiplier() {
@@ -204,7 +207,7 @@ public class PlayerStats {
         soulDust = 0;
 
         baseArmor = 10f;
-        baseMoveSpeed = 29f;
+        baseMoveSpeed = 43.5f;
         baseWeaponDamage = 8f;
         baseWeaponAttackSpeed = 1.2f;
 
@@ -249,6 +252,10 @@ public class PlayerStats {
     /** True if the item was actually consumed (any non-NONE effect), false for keys/materials. */
     public boolean consume(Item item) {
         if (item == null) return false;
+        // only actual potions are drinkable: a bomb goes through Q, and this guards
+        // against a stray THROW_EXPLOSIVE item reaching the effect switch below
+        if (item.getGroup() != Item.Group.CONSUMABLE) return false;
+        SoundManager.playPotionDrink();
         // every effect below is scaled by the potion's upgrade level, so a bottle bought
         // at level 3 is immediately stronger than the same item at level 1. The rule
         // lives in PotionUpgrades; this is the single place it is applied.
@@ -371,29 +378,6 @@ public class PlayerStats {
             sb.append("REGEN ").append((int) Math.ceil(regenTime)).append("s");
         }
         return sb.toString().trim();
-    }
-
-    /** Sums defense bonuses from the four armor slots (idempotent read). */
-    private float defenseFromEquipment() {
-        if (inventory == null) return 0f;
-        float total = 0f;
-        for (Slot s : inventory.getEquipment()) {
-            if (s.isEmpty()) continue;
-            Item it = s.getItem();
-            if (it != null) total += it.defenseBonus;
-        }
-        return total;
-    }
-
-    private float moveSpeedFromEquipment() {
-        if (inventory == null) return 0f;
-        float total = 0f;
-        for (Slot s : inventory.getEquipment()) {
-            if (s.isEmpty()) continue;
-            Item it = s.getItem();
-            if (it != null) total += it.moveSpeedBonus;
-        }
-        return total;
     }
 
     public float getHealthFraction() {

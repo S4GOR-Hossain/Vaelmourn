@@ -42,6 +42,19 @@ public class SanctuaryStage implements Stage {
     /** Walking room required between a prop edge and an NPC/chest body centre; ~1u is the body. */
     private static final float PROP_CLEARANCE = 2f;
 
+    /** Ground position of the exit portal (StageManager's default for this stage) and
+     *  the radius around it that nothing may build inside. */
+    private static final float PORTAL_X = 0f;
+    private static final float PORTAL_Z = 25f;
+    private static final float PORTAL_KEEP_CLEAR = 20f;
+
+    /** True when (x,z) is close enough to the exit portal to foul it. */
+    private static boolean foulsPortal(float x, float z) {
+        float dx = x - PORTAL_X;
+        float dz = z - PORTAL_Z;
+        return dx * dx + dz * dz < PORTAL_KEEP_CLEAR * PORTAL_KEEP_CLEAR;
+    }
+
     /**
      * Treeline sits just outside the boundary walls. It is scenery, not the barrier: the
      * ±38 wall ring plus its four corner seals already enclose the player, so the count can
@@ -114,7 +127,7 @@ public class SanctuaryStage implements Stage {
         stageNode.attachChild(forestNode);
 
         buildGroundPlane(assetManager, bulletAppState);
-        buildBoundaryWalls(bulletAppState);
+        buildBoundaryWalls(assetManager, bulletAppState);
         buildVillageProps(assetManager, bulletAppState);
         buildForest(assetManager, bulletAppState);
     }
@@ -149,28 +162,37 @@ public class SanctuaryStage implements Stage {
         physicsObjects.add(groundPhysics);
     }
 
-    private void buildBoundaryWalls(BulletAppState bulletAppState) {
-        // North wall
-        createWall(new Vector3f(0, 5f, -WALL_HALF), new Vector3f(40f, 5f, 2f), bulletAppState);
-        // South wall
-        createWall(new Vector3f(0, 5f, WALL_HALF), new Vector3f(40f, 5f, 2f), bulletAppState);
-        // East wall
-        createWall(new Vector3f(WALL_HALF, 5f, 0), new Vector3f(2f, 5f, 40f), bulletAppState);
-        // West wall
-        createWall(new Vector3f(-WALL_HALF, 5f, 0), new Vector3f(2f, 5f, 40f), bulletAppState);
+    private void buildBoundaryWalls(AssetManager assetManager, BulletAppState bulletAppState) {
+        // Collision only, no visual: the treeline and perimeter scenery already frame
+        // the sanctuary, so a rendered border would spoil it.
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(0, 5f, -WALL_HALF), new Vector3f(40f, 5f, 2f));
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(0, 5f, WALL_HALF), new Vector3f(40f, 5f, 2f));
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(WALL_HALF, 5f, 0), new Vector3f(2f, 5f, 40f));
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(-WALL_HALF, 5f, 0), new Vector3f(2f, 5f, 40f));
         // Diagonal corner seals so the wall box corners cannot be slipped through
-        createWall(new Vector3f(WALL_HALF - 3f, 5f, -WALL_HALF + 3f), new Vector3f(5f, 5f, 5f), bulletAppState);
-        createWall(new Vector3f(WALL_HALF - 3f, 5f, WALL_HALF - 3f), new Vector3f(5f, 5f, 5f), bulletAppState);
-        createWall(new Vector3f(-WALL_HALF + 3f, 5f, WALL_HALF - 3f), new Vector3f(5f, 5f, 5f), bulletAppState);
-        createWall(new Vector3f(-WALL_HALF + 3f, 5f, -WALL_HALF + 3f), new Vector3f(5f, 5f, 5f), bulletAppState);
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(WALL_HALF - 3f, 5f, -WALL_HALF + 3f), new Vector3f(5f, 5f, 5f));
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(WALL_HALF - 3f, 5f, WALL_HALF - 3f), new Vector3f(5f, 5f, 5f));
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(-WALL_HALF + 3f, 5f, WALL_HALF - 3f), new Vector3f(5f, 5f, 5f));
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(-WALL_HALF + 3f, 5f, -WALL_HALF + 3f), new Vector3f(5f, 5f, 5f));
     }
 
-    private void createWall(Vector3f position, Vector3f halfExtents, BulletAppState bulletAppState) {
-        BoxCollisionShape wallShape = new BoxCollisionShape(halfExtents);
-        RigidBodyControl wallPhysics = new RigidBodyControl(wallShape, 0);
-        wallPhysics.setPhysicsLocation(position);
-        bulletAppState.getPhysicsSpace().add(wallPhysics);
-        physicsObjects.add(wallPhysics);
+    /** Slides a point straight away from the portal until it clears the keep-clear zone. */
+    private static Vector3f pushedClearOfPortal(float x, float z) {
+        if (!foulsPortal(x, z)) return new Vector3f(x, 0f, z);
+        float dx = x - PORTAL_X;
+        float dz = z - PORTAL_Z;
+        float len = FastMath.sqrt(dx * dx + dz * dz);
+        if (len < 0.001f) return new Vector3f(PORTAL_X + PORTAL_KEEP_CLEAR, 0f, PORTAL_Z);
+        float scale = (PORTAL_KEEP_CLEAR + 2f) / len;
+        return new Vector3f(PORTAL_X + dx * scale, 0f, PORTAL_Z + dz * scale);
     }
 
     /** Drops the seven props on evenly spaced slots, each turned to face the plaza. */
@@ -178,10 +200,17 @@ public class SanctuaryStage implements Stage {
         float stepDeg = 360f / PROP_SLOTS;
 
         for (Prop prop : SANCTUARY_PROPS) {
-            float angleDeg = PROP_RING_PHASE_DEG + prop.slot() * stepDeg;
-            float rad = FastMath.DEG_TO_RAD * angleDeg;
-            float x = PROP_RING_RADIUS * FastMath.cos(rad);
-            float z = PROP_RING_RADIUS * FastMath.sin(rad);
+            // Nothing may build on top of the exit portal. The ring ran straight over
+            // it and dropped two houses 10u and 15u away, whose 16u-wide colliders and
+            // overhanging models buried the portal. Slide offenders radially outward
+            // instead of around the ring: three of the seven slots fall inside the
+            // keep-clear zone, so there is nowhere on the ring to relocate them to.
+            float rad = FastMath.DEG_TO_RAD * (PROP_RING_PHASE_DEG + prop.slot() * stepDeg);
+            Vector3f slot = pushedClearOfPortal(
+                    PROP_RING_RADIUS * FastMath.cos(rad),
+                    PROP_RING_RADIUS * FastMath.sin(rad));
+            float x = slot.x;
+            float z = slot.z;
 
             Random rand = new Random(1000 + prop.slot());
             Spatial model = StageDecor.placeFlat(decorNode, assetManager, prop.path(),
@@ -279,9 +308,12 @@ public class SanctuaryStage implements Stage {
                     ? 1.9f + rand.nextFloat() * 0.7f
                     : 5.5f + rand.nextFloat() * 1.8f;
 
-            Spatial tree = StageDecor.placeFlat(forestNode, assetManager, model, x, z, scale, rand);
+            // Treeline trees sit only ~18u from the portal at the nearest point, so a
+            // few landed inside the keep-clear zone. Slide them outward.
+            Vector3f spot = pushedClearOfPortal(x, z);
+            Spatial tree = StageDecor.placeFlat(forestNode, assetManager, model, spot.x, spot.z, scale, rand);
             tree.updateModelBound();
-            addTreeTrunk(tree, model, x, z, pack, bulletAppState);
+            addTreeTrunk(tree, model, spot.x, spot.z, pack, bulletAppState);
         }
 
         float outerStep = 360f / OUTER_SCATTER_COUNT;
@@ -304,16 +336,11 @@ public class SanctuaryStage implements Stage {
     /** Static trunk collider sized from the placed bounds so the player cannot walk out. */
     private void addTreeTrunk(Spatial tree, String model, float x, float z, boolean pack,
             BulletAppState bulletAppState) {
-        if (!(tree.getWorldBound() instanceof com.jme3.bounding.BoundingBox bbox)) {
-            return;
-        }
-        Vector3f extent = bbox.getExtent(new Vector3f());
-        float radius = pack ? 2.2f : 1.1f;
-        float collar = pack ? 4.5f : 6.5f;
-        if (!model.contains("pack")) {
-            radius = FastMath.clamp(Math.max(extent.x, extent.z) * 0.35f, 0.9f, 2f);
-            collar = FastMath.clamp(extent.y, 4f, 9f);
-        }
+        // Trunk-only, same reasoning as Darkwood: sizing off the full model bounds
+        // gave every single a 4x4 box up to 9u tall whose invisible wall reached up
+        // through the canopy.
+        float radius = pack ? 1.6f : StageDecor.trunkHalfWidth(tree, 0.6f, 1.25f);
+        float collar = pack ? 3.5f : StageDecor.trunkHeight(tree, 2.5f, 4f);
 
         BoxCollisionShape trunk = new BoxCollisionShape(new Vector3f(radius, collar * 0.5f, radius));
         RigidBodyControl physics = new RigidBodyControl(trunk, 0);

@@ -2,6 +2,9 @@ package com.vaelmourn;
 
 import com.jme3.asset.AssetManager;
 import com.jme3.bounding.BoundingBox;
+import com.jme3.bullet.BulletAppState;
+import com.jme3.bullet.collision.shapes.BoxCollisionShape;
+import com.jme3.bullet.control.RigidBodyControl;
 import com.jme3.material.Material;
 import com.jme3.material.RenderState.FaceCullMode;
 import com.jme3.math.ColorRGBA;
@@ -10,6 +13,7 @@ import com.jme3.math.Vector3f;
 import com.jme3.scene.Geometry;
 import com.jme3.scene.Node;
 import com.jme3.scene.Spatial;
+import com.jme3.scene.Spatial.CullHint;
 
 import java.util.List;
 import java.util.Random;
@@ -122,6 +126,8 @@ public final class GemProgression {
 
     private final AssetManager assetManager;
     private final Node rootNode;
+    /** so a dropped gem is a solid world object rather than something to walk through */
+    private final BulletAppState bulletAppState;
     private final Random random = new Random();
 
     /** HUD/console feedback sink; the game points this at its message line. */
@@ -146,12 +152,15 @@ public final class GemProgression {
     /** stage index the gem was dropped in, so it comes back in that same level */
     private final int[] dropStage = new int[GEM_COUNT];
     private final Node[] worldNodes = new Node[GEM_COUNT];
+    /** the collider belonging to each live world gem, removed with the node */
+    private final RigidBodyControl[] worldBodies = new RigidBodyControl[GEM_COUNT];
     private final boolean[] loadFailed = new boolean[GEM_COUNT];
     private float bobClock;
 
-    public GemProgression(AssetManager assetManager, Node rootNode) {
+    public GemProgression(AssetManager assetManager, Node rootNode, BulletAppState bulletAppState) {
         this.assetManager = assetManager;
         this.rootNode = rootNode;
+        this.bulletAppState = bulletAppState;
         resetRun();
     }
 
@@ -372,6 +381,21 @@ public final class GemProgression {
         }
     }
 
+    /**
+     * Dev tool: force a biome's gem straight to COLLECTED and clear any world copy.
+     * Intended for demonstration/QA so a tester can reach a boss gate without the
+     * drop RNG. The caller is responsible for putting the item in the inventory.
+     */
+    public void devGrantCollected(int biome) {
+        int b = clampBiome(biome);
+        if (states[b] == State.COMPLETED) return;
+        states[b] = State.COLLECTED;
+        dropStage[b] = -1;
+        dropPos[b] = null;
+        removeWorldNode(b);
+        say("[DEV] Gem acquired: " + GEMS[b].name + "! Find the " + GEMS[b].bossName + ".");
+    }
+
     /** Debug one-liner, e.g. "Darkwood: DROPPED (2/4 levels)". */
     public String describe() {
         StringBuilder sb = new StringBuilder();
@@ -402,9 +426,30 @@ public final class GemProgression {
                 dropPos[biome].z);
         rootNode.attachChild(holder);
         worldNodes[biome] = holder;
+
+        // a dropped gem is a physical object: one small box the player cannot walk
+        // through, sized off the real model so it matches what is drawn
+        holder.updateModelBound();
+        if (bulletAppState != null && holder.getWorldBound() instanceof BoundingBox bbox) {
+            Vector3f extent = bbox.getExtent(new Vector3f());
+            float half = FastMath.clamp(Math.max(extent.x, extent.z) * 0.5f, 0.35f, 0.9f);
+            float halfY = FastMath.clamp(extent.y * 0.5f, 0.3f, 0.9f);
+            Vector3f centre = bbox.getCenter(new Vector3f());
+            BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(half, halfY, half));
+            RigidBodyControl physics = new RigidBodyControl(shape, 0);
+            physics.setPhysicsLocation(new Vector3f(centre.x, dropPos[biome].y + halfY, centre.z));
+            bulletAppState.getPhysicsSpace().add(physics);
+            worldBodies[biome] = physics;
+        }
     }
 
     private void removeWorldNode(int biome) {
+        if (worldBodies[biome] != null) {
+            if (bulletAppState != null) {
+                bulletAppState.getPhysicsSpace().remove(worldBodies[biome]);
+            }
+            worldBodies[biome] = null;
+        }
         Node node = worldNodes[biome];
         if (node == null) return;
         node.removeFromParent();
@@ -429,14 +474,25 @@ public final class GemProgression {
             return null;
         }
 
-        // uniform scale so a 5-unit or 0.05-unit source gem reads the same on screen
-        float height = 0f;
-        if (model.getWorldBound() instanceof BoundingBox bbox) {
-            height = bbox.getExtent(new Vector3f()).y * 2f;
-        }
+        // The bounds MUST be refreshed before they are measured. Spatial.getWorldBound()
+        // only recomputes when the RF_BOUND refresh flag is set, and that flag is only
+        // raised by updateModelBound()/setBoundRefresh(). A freshly cloned FBX has never
+        // been bound-updated, so getWorldBound() returned null, the `instanceof
+        // BoundingBox` test below failed, height stayed 0 and the uniform scale was
+        // never applied — the gem rendered at whatever size the FBX happened to be
+        // authored at (centimetre-scale FBX geometry is sub-pixel at world scale, which
+        // is why only a couple of stray shards were ever visible).
+        model.updateModelBound();
+        float height = measuredHeight(model);
         if (height > 0.0001f) {
             float scale = GEM_TARGET_HEIGHT / height;
             model.setLocalScale(scale, scale, scale);
+        } else {
+            // last-resort guard: an unmeasurable gem would otherwise sit at native
+            // scale and be invisible again
+            model.setLocalScale(1f);
+            System.err.println("[Gem] " + gem.modelPath
+                    + " has no usable bounding box; gem may render at native scale.");
         }
         // FBX pivots on its own origin, so put the model's own base on the node origin
         model.setLocalTranslation(0f, StageDecor.baseLift(model), 0f);
@@ -452,17 +508,47 @@ public final class GemProgression {
         return holder;
     }
 
+    /**
+     * World height of a spatial in its own scaled space.
+     *
+     * <p>Returns 0 when the importer produced something other than a BoundingBox. That
+     * is deliberate rather than a silent fallback: {@code buildGemNode} logs loudly
+     * and applies a safe scale when this returns 0, which is far easier to spot in the
+     * console than a gem quietly rendered at native size.</p>
+     */
+    private static float measuredHeight(Spatial model) {
+        if (model.getWorldBound() instanceof BoundingBox bbox) {
+            return bbox.getExtent(new Vector3f()).y * 2f;
+        }
+        return 0f;
+    }
+
+    /**
+     * Re-materialises every sub-mesh of a gem in its biome colour so it reads as a
+     * pickup item on the ground.
+     *
+     * <p>Uses {@code Unshaded.j3md} rather than {@code Lighting.j3md}: the shipped FBXs
+     * reference an external texture the project does not include and carry no reliable
+     * normal buffer, so a lit material shaded the gems to black. Unshaded needs neither a
+     * diffuse map nor normals, so the geometry renders in exactly the colour asked for.
+     * Deliberately plain - no glow pass.</p>
+     */
     private void applyGemMaterial(Spatial spatial, ColorRGBA color) {
         if (spatial instanceof Geometry geometry) {
-            Material material = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
-            material.setBoolean("UseMaterialColors", true);
-            material.setColor("Ambient", ColorRGBA.White);
-            material.setColor("Diffuse", color);
-            material.setColor("Specular", ColorRGBA.White);
-            material.setFloat("Shininess", 48f);
-            material.setColor("GlowColor", color.mult(0.45f));
+            Material material = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
+            // NOTE: Unshaded.j3md declares Color, GlowMap and GlowColor but NOT
+            // GlowIntensity. Material.setFloat on an undeclared parameter throws
+            // IllegalArgumentException("Material parameter is not defined"), which is
+            // what crashed the moment a gem was dropped. Do not add a glow intensity
+            // here without using LightGlow.j3md, which does declare it.
+            material.setColor("Color", color);
+            // double-sided: a faceted gem reads wrong the moment face culling hides
+            // its back half, and the imported winding order is not reliable
             material.getAdditionalRenderState().setFaceCullMode(FaceCullMode.Off);
             geometry.setMaterial(material);
+            // never cull: a stale bound must not make a small prop blink out at the
+            // edge of the view
+            geometry.setCullHint(CullHint.Never);
         }
         if (!(spatial instanceof Node)) return;
         for (Spatial child : ((Node) spatial).getChildren()) {

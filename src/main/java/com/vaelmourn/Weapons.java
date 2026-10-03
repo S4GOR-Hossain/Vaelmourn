@@ -3,56 +3,51 @@ package com.vaelmourn;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * The player's single sword.
+ *
+ * <p>Reduced from a multi-weapon system to one blade: the RANGED and SPECIAL groups
+ * were dropped along with the dagger, hunters' blade, heavy blade, longbow, pistol
+ * and kite shield. The thrown bomb is not a weapon def - it is a stackable throwable
+ * item fired by {@link CombatController} on its own input, so it never appears here.</p>
+ *
+ * <p>Only fields the sword actually consumes are kept. The former ranged
+ * {@code projectileSpeed}/{@code adsFov}, shield {@code blockReduction}/{@code pushForce}
+ * and {@code modelPath} were either dead data or tied to the removed groups.</p>
+ */
 public class Weapons {
 
     public enum WeaponGroup {
-        MELEE,
-        RANGED,
-        SPECIAL
+        MELEE
     }
 
     public static class WeaponDef {
         public final String id;
         public final WeaponGroup group;
-        public final String modelPath;
 
         public final float damage;
-        public final float attackSpeed;       // swings/attacks per second
+        public final float attackSpeed;       // swings per second
         public final float heavyMultiplier;
         public final float range;
-        public final float projectileSpeed;
-        public final float adsFov;
-        public final float blockReduction;    // 0..1 fraction of incoming damage blocked
-        public final float pushForce;
         public final float parryWindow;
         public final float meleeKnockback;
 
         public WeaponDef(
                 String id,
                 WeaponGroup group,
-                String modelPath,
                 float damage,
                 float attackSpeed,
                 float heavyMultiplier,
                 float range,
-                float projectileSpeed,
-                float adsFov,
-                float blockReduction,
-                float pushForce,
                 float parryWindow,
                 float meleeKnockback
         ) {
             this.id = id;
             this.group = group;
-            this.modelPath = modelPath;
             this.damage = damage;
             this.attackSpeed = attackSpeed;
             this.heavyMultiplier = heavyMultiplier;
             this.range = range;
-            this.projectileSpeed = projectileSpeed;
-            this.adsFov = adsFov;
-            this.blockReduction = blockReduction;
-            this.pushForce = pushForce;
             this.parryWindow = parryWindow;
             this.meleeKnockback = meleeKnockback;
         }
@@ -92,62 +87,12 @@ public class Weapons {
     }
 
     private void registerDefaults() {
-        // balanced all-rounder; the default loadout
+        // balanced all-rounder; the default and only loadout
         add(new WeaponDef(
                 "iron_sword",
                 WeaponGroup.MELEE,
-                "Models/Weapons/Melee/iron_sword.glb",
                 28f, 1.4f, 1.9f, 2.4f,
-                0f, 50f, 0f, 0f, 0.18f, 14f
-        ));
-
-        // fast and light: weak hits, quick swings, gentle knockback
-        add(new WeaponDef(
-                "hunters_blade",
-                WeaponGroup.MELEE,
-                "Models/Weapons/Melee/hunters_blade.glb",
-                16f, 2.8f, 1.4f, 2.2f,
-                0f, 55f, 0f, 0f, 0.15f, 8f
-        ));
-
-        add(new WeaponDef(
-                "heavy_blade",
-                WeaponGroup.MELEE,
-                "Models/Weapons/Melee/heavy_blade.glb",
-                44f, 0.9f, 2.2f, 2.6f,
-                0f, 45f, 0f, 0f, 0.2f, 26f
-        ));
-
-        add(new WeaponDef(
-                "dagger",
-                WeaponGroup.MELEE,
-                "Models/Weapons/Melee/dagger.glb",
-                16f, 2.4f, 1.5f, 1.8f,
-                0f, 55f, 0f, 0f, 0.14f, 6f
-        ));
-
-        add(new WeaponDef(
-                "longbow",
-                WeaponGroup.RANGED,
-                "Models/Weapons/Ranged/longbow.glb",
-                24f, 1.0f, 1.0f, 60f,
-                55f, 35f, 0f, 0f, 0f, 0f
-        ));
-
-        add(new WeaponDef(
-                "pistol",
-                WeaponGroup.RANGED,
-                "Models/Weapons/Ranged/pistol.glb",
-                20f, 3.2f, 1.0f, 80f,
-                120f, 42f, 0f, 0f, 0f, 0f
-        ));
-
-        add(new WeaponDef(
-                "kite_shield",
-                WeaponGroup.SPECIAL,
-                "Models/Weapons/Special/kite_shield.glb",
-                10f, 1.0f, 1.0f, 2.0f,
-                0f, 55f, 0.65f, 14f, 0f, 0f
+                0.18f, 14f
         ));
     }
 

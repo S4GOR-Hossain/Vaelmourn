@@ -23,17 +23,44 @@ public class TreeWardenBossStage extends BossStage {
             "Models/Environment/Forest/tree_pack_18.glb"
     };
 
+    /** Tree scale range; kept in one place since the arena-overhang test depends on it. */
+    private static final float TREE_SCALE_MIN = 4.2f;
+    private static final float TREE_SCALE_MAX = 5.3f;
+    /** How far outside the combat disc a tree's foliage must stay, in world units. */
+    private static final float ARENA_CLEARANCE = 0f;
+
     @Override
     protected void buildArenaDecor(AssetManager assetManager, BulletAppState bulletAppState) {
         Random rand = new Random(771);
+        int kept = 0;
+        int culled = 0;
         for (int i = 0; i < 26; i++) {
             float angle = (i / 26f) * FastMath.TWO_PI + rand.nextFloat() * 0.12f;
             float radius = getRingStart() + rand.nextFloat() * (getRingEnd() - getRingStart());
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
-            StageDecor.addTreeWithHitbox(assetManager, stageNode, bulletAppState,
-                    physicsObjects, TREE_MODELS, rand, x, z);
+
+            Spatial tree = StageDecor.placeFlat(stageNode, assetManager,
+                    TREE_MODELS[rand.nextInt(TREE_MODELS.length)], x, z,
+                    TREE_SCALE_MIN + rand.nextFloat() * (TREE_SCALE_MAX - TREE_SCALE_MIN), rand);
+            // These are full canopy trees at scale ~4-5, so a trunk legally placed in
+            // the decor ring still throws foliage inside the combat disc and buries the
+            // arena the player is supposed to fight in. Cull only the trees whose canopy
+            // actually reaches the disc and leave every other one in place.
+            if (overhangsArena(tree)) {
+                tree.removeFromParent();
+                culled++;
+            } else {
+                // Trunk-only, not addBlockerFor: that matches the whole silhouette,
+                // which boxed these trees in at canopy width and buried the arena in
+                // invisible walls the player could see straight through.
+                StageDecor.addTrunkBlocker(bulletAppState, physicsObjects, tree, x, 0f, z,
+                        0.6f, 1.25f, 2.5f, 4f);
+                kept++;
+            }
         }
+        System.out.println("[TreeWardenArena] trees kept=" + kept + " culled=" + culled
+                + " arenaRadius=" + getArenaRadius());
 
         String[] bushes = {
                 KAYKIT + "Bush_1_C_Color1.gltf",
@@ -51,6 +78,7 @@ public class TreeWardenBossStage extends BossStage {
             float radius = getRingStart() + 1f + rand.nextFloat() * (getRingEnd() - getRingStart() - 1f);
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
+            // bushes are ankle-high ground cover, walked through by design
             StageDecor.placeFlat(stageNode, assetManager,
                     bushes[rand.nextInt(bushes.length)], x, z,
                     1.8f + rand.nextFloat() * 1.6f, rand);
@@ -60,17 +88,39 @@ public class TreeWardenBossStage extends BossStage {
             float radius = getRingStart() + 1f + rand.nextFloat() * (getRingEnd() - getRingStart() - 1f);
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
-            Spatial rock = StageDecor.placeFlat(stageNode, assetManager,
+            // solid: these boulders used to be walk-through
+            StageDecor.placeSolid(stageNode, assetManager, bulletAppState, physicsObjects,
                     rocks[rand.nextInt(rocks.length)], x, z,
                     3f + rand.nextFloat() * 2.5f, rand);
-            rock.updateModelBound();
-            float half = 1.6f;
-            if (rock.getWorldBound() instanceof BoundingBox bbox) {
-                Vector3f ext = bbox.getExtent(new Vector3f());
-                half = FastMath.clamp(Math.max(ext.x, ext.z) * 0.5f, 1.4f, 3.5f);
-            }
-            StageDecor.addBlocker(bulletAppState, physicsObjects, x, z, half, half, half);
         }
+
+        // Same forest, continued past the walls: the arena now sits in a clearing
+        // rather than at the edge of a 550-unit floor, and none of this is reachable.
+        scatterOuterScenery(assetManager, TREE_MODELS, 90, 4101L, 4.5f, 8f);
+        scatterOuterScenery(assetManager, rocks, 30, 4102L, 3f, 5.5f);
+        scatterOuterScenery(assetManager, bushes, 55, 4103L, 2f, 3.5f);
+    }
+
+    /**
+     * True when any part of the tree's canopy reaches inside the open combat disc.
+     *
+     * <p>{@code ARENA_CLEARANCE} is deliberately 0. The decor ring already starts outside
+     * the arena radius, so adding a buffer here widened the cull well past real
+     * obstruction and started deleting the outer treeline for no gameplay reason. A tree
+     * whose bounds genuinely intersect the disc is obstructed; one that merely leans over
+     * from beyond it stays.</p>
+     */
+    private boolean overhangsArena(Spatial tree) {
+        tree.updateModelBound();
+        if (!(tree.getWorldBound() instanceof BoundingBox bbox)) return false;
+
+        // closest point of the tree's footprint to the arena centre
+        Vector3f min = bbox.getMin(new Vector3f());
+        Vector3f max = bbox.getMax(new Vector3f());
+        float nearestX = FastMath.clamp(0f, min.x, max.x);
+        float nearestZ = FastMath.clamp(0f, min.z, max.z);
+        float closest = FastMath.sqrt(nearestX * nearestX + nearestZ * nearestZ);
+        return closest < getArenaRadius() + ARENA_CLEARANCE;
     }
 
     @Override

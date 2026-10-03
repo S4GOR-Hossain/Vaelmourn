@@ -344,8 +344,9 @@ public class JungleStage implements Stage {
         boolean fast = variant == 3;
         // was 7 + variant + loopCount/2 (8..11 on a first pass), which left the arenas
         // thin and the stages short. The authored groups hold 12-14 spots, so a higher
-        // base fills a whole group per clearing while loopCount still compounds on top.
-        int enemyCount = 12 + variant + loopCount;
+        // base fills a whole group per clearing. Each completed cycle then doubles the
+        // roster through Stage.loopedEnemyCount.
+        int enemyCount = Stage.loopedEnemyCount(12 + variant, loopCount);
         float scale = 1f + (variant - 1) * 0.35f;
         Random rand = new Random(66 + variant * 7 + loopCount);
 
@@ -398,10 +399,17 @@ public class JungleStage implements Stage {
     /** Sampled so the exit portal rests on this stage's terrain instead of a fixed
      *  height, which would leave it buried in the raised northern shelves. */
     @Override
-    public Vector3f getExitPortalGround() {
-        Arena exit = spaces()[spaces().length - 1];
-        return new Vector3f(exit.x, profileOf(variant, exit.x, exit.z), exit.z);
-    }
+public Vector3f getExitPortalGround() {
+            Arena exit = spaces()[spaces().length - 1];
+            return new Vector3f(exit.x, profileOf(variant, exit.x, exit.z), exit.z);
+        }
+
+        /** Thrown bombs integrate their own gravity, so they need the same terrain
+         *  height the mesh was built from or they sink into the raised shelves. */
+        @Override
+        public float groundHeightAt(float x, float z) {
+            return profileOf(variant, x, z);
+        }
 
     @Override
     public ColorRGBA getSkyColor() {
@@ -1457,15 +1465,10 @@ public class JungleStage implements Stage {
         restoreTrunks(placed.spatial);
         placed.spatial.updateModelBound();
 
-        // trunk collider from the model bounds, so what you bump into matches the trunk
-        float trunkRadius = 0.9f;
-        float collarHeight = 4f;
-        if (placed.spatial.getWorldBound() instanceof BoundingBox bbox) {
-            Vector3f extent = new Vector3f();
-            bbox.getExtent(extent);
-            trunkRadius = FastMath.clamp(Math.max(extent.x, extent.z) * 0.35f, 0.9f, 2f);
-            collarHeight = FastMath.clamp(extent.y, 3f, 9f);
-        }
+        // Trunk-only collider. Sizing off the full model bounds made every tree a 4x4
+        // box up to 9u tall, so the invisible wall reached up through the canopy.
+        float trunkRadius = StageDecor.trunkHalfWidth(placed.spatial, 0.6f, 1.25f);
+        float collarHeight = StageDecor.trunkHeight(placed.spatial, 2.5f, 4f);
         addBlockerAt(bulletAppState, x, y, z, trunkRadius, collarHeight / 2f, trunkRadius);
         return true;
     }
@@ -1656,6 +1659,10 @@ placed.spatial.setLocalTranslation(b.x, placed.baseY + y, b.z);
                 Material material = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
                 material.setBoolean("UseMaterialColors", true);
                 material.setColor("Diffuse", fallbackColor);
+                // Lighting.j3md declares "Ambient" with no default, and the shader does
+                // m_Ambient * ambientLight, so leaving it unset zeroes all ambient light
+                // and the scene ends up lit by the sun alone.
+                material.setColor("Ambient", fallbackColor);
                 material.setColor("Specular", ColorRGBA.White);
                 material.setFloat("Shininess", 8f);
                 geometry.setMaterial(material);

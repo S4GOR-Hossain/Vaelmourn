@@ -105,7 +105,7 @@ public class CombatEffects {
 
     public void onEnemyHit(EnemyController enemy, float damage, boolean killed, float shakeAmp) {
         if (damage > 0f && font != null && enemy != null) {
-            spawnDamageNumber(enemy.getPosition().add(0f, 1.85f, 0f), Math.round(damage));
+            spawnDamageNumber(enemy.getPosition().clone().add(0f, 1.85f, 0f), Math.round(damage));
         }
         startShake(killed ? KILL_SHAKE_INTENSITY : shakeAmp,
                 killed ? KILL_SHAKE_DURATION : HIT_SHAKE_DURATION);

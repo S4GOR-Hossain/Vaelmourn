@@ -28,6 +28,25 @@ public abstract class BossStage implements Stage {
 
     private static final float HALF_EXTENT = 55f;
     private static final float ARENA_RADIUS = 36f;
+
+    /** The visible floor and its collider extend well past the boundary walls on
+     *  purpose: the arena should read as a clearing in a much larger landscape rather
+     *  than a fenced box, and there should be ground to see beyond the treeline. The
+     *  walls stay at {@link #HALF_EXTENT}, so all of this is scenery the player can
+     *  look at but never stand on. */
+    private static final float FLOOR_SCALE = 5f;
+    private static final float FLOOR_HALF_EXTENT = HALF_EXTENT * FLOOR_SCALE;
+
+    /** Density multiplier for the scenery scattered beyond the walls.
+     *
+     *  <p>The per-stage counts passed to {@link #scatterOuterScenery} are an upper
+     *  bound; this scales them all down in one place. Populating the full 550-unit
+     *  floor cost visible frame time on the boss arenas -- a few hundred extra GLB
+     *  instances is a few hundred extra draw calls, all of them permanently on screen
+     *  because none of it is ever frustum-culled out of view for long. Raise toward
+     *  1.0 if the outer ring reads as too sparse for the stage.</p>
+     */
+    private static final float OUTER_SCENERY_DENSITY = 0.4f;
     /** where the enclosing decor ring starts (just outside the combat disc) */
     private static final float RING_START = ARENA_RADIUS + 3f;
     /** the boss appears offset from dead-center so the player has a beat to orient */
@@ -44,7 +63,7 @@ public abstract class BossStage implements Stage {
         parentNode.attachChild(stageNode);
 
         buildArenaFloor(assetManager, bulletAppState);
-        buildBoundaryWalls(bulletAppState);
+        buildBoundaryWalls(assetManager, bulletAppState);
         buildArenaDecor(assetManager, bulletAppState);
     }
 
@@ -92,7 +111,9 @@ public abstract class BossStage implements Stage {
         if (count <= 0 || enemySink == null) return minions;
         BossSpec spec = getBossSpec();
         Random rand = new Random();
-        for (int i = 0; i < count; i++) {
+        // the boss's adds double with the rest of the rotation, same as the stage roster
+        int total = Stage.loopedEnemyCount(count, loopCount);
+        for (int i = 0; i < total; i++) {
             float angle = rand.nextFloat() * FastMath.TWO_PI;
             float radius = spec.hoverHeight > 0f ? 8f : 10f;
             float x = FastMath.cos(angle) * radius;
@@ -128,7 +149,7 @@ public abstract class BossStage implements Stage {
     }
 
     private void buildArenaFloor(AssetManager assetManager, BulletAppState bulletAppState) {
-        Box groundBox = new Box(HALF_EXTENT, 0.5f, HALF_EXTENT);
+        Box groundBox = new Box(FLOOR_HALF_EXTENT, 0.5f, FLOOR_HALF_EXTENT);
         Geometry ground = new Geometry(getName() + "Ground", groundBox);
         Material groundMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
         groundMat.setColor("Color", getGroundColor());
@@ -148,37 +169,56 @@ public abstract class BossStage implements Stage {
         arenaDisc.setLocalTranslation(0f, 0.05f, 0f);
         stageNode.attachChild(arenaDisc);
 
-        BoxCollisionShape shape = new BoxCollisionShape(new Vector3f(HALF_EXTENT, 0.5f, HALF_EXTENT));
+        BoxCollisionShape shape = new BoxCollisionShape(
+                new Vector3f(FLOOR_HALF_EXTENT, 0.5f, FLOOR_HALF_EXTENT));
         RigidBodyControl physics = new RigidBodyControl(shape, 0);
         physics.setPhysicsLocation(new Vector3f(0, -0.5f, 0));
         bulletAppState.getPhysicsSpace().add(physics);
         physicsObjects.add(physics);
     }
 
-    private void buildBoundaryWalls(BulletAppState bulletAppState) {
+    private void buildBoundaryWalls(AssetManager assetManager, BulletAppState bulletAppState) {
         float wallHeight = 10f;
         float wallThickness = 1f;
 
-        createWall(new Vector3f(0, wallHeight / 2f, HALF_EXTENT),
-                new Vector3f(HALF_EXTENT, wallHeight / 2f, wallThickness), bulletAppState);
-        createWall(new Vector3f(0, wallHeight / 2f, -HALF_EXTENT),
-                new Vector3f(HALF_EXTENT, wallHeight / 2f, wallThickness), bulletAppState);
-        createWall(new Vector3f(HALF_EXTENT, wallHeight / 2f, 0),
-                new Vector3f(wallThickness, wallHeight / 2f, HALF_EXTENT), bulletAppState);
-        createWall(new Vector3f(-HALF_EXTENT, wallHeight / 2f, 0),
-                new Vector3f(wallThickness, wallHeight / 2f, HALF_EXTENT), bulletAppState);
-    }
+        // Collision only, no visual: a rendered border would box in the arena. The
+        // authored scenery (cliff faces, treelines) already closes the view.
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(0, wallHeight / 2f, HALF_EXTENT),
+                new Vector3f(HALF_EXTENT, wallHeight / 2f, wallThickness));
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(0, wallHeight / 2f, -HALF_EXTENT),
+                new Vector3f(HALF_EXTENT, wallHeight / 2f, wallThickness));
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(HALF_EXTENT, wallHeight / 2f, 0),
+                new Vector3f(wallThickness, wallHeight / 2f, HALF_EXTENT));
+        StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                new Vector3f(-HALF_EXTENT, wallHeight / 2f, 0),
+                new Vector3f(wallThickness, wallHeight / 2f, HALF_EXTENT));
 
-    private void createWall(Vector3f position, Vector3f halfExtents, BulletAppState bulletAppState) {
-        BoxCollisionShape shape = new BoxCollisionShape(halfExtents);
-        RigidBodyControl physics = new RigidBodyControl(shape, 0);
-        physics.setPhysicsLocation(position);
-        bulletAppState.getPhysicsSpace().add(physics);
-        physicsObjects.add(physics);
+        // Diagonal corner seals: the four wall boxes meet at right angles, so a
+        // character capsule can ride the seam between them.
+        for (int sx = -1; sx <= 1; sx += 2) {
+            for (int sz = -1; sz <= 1; sz += 2) {
+                StageDecor.addBoundaryWall(bulletAppState, physicsObjects,
+                        new Vector3f(sx * (HALF_EXTENT - wallThickness * 2f),
+                                wallHeight / 2f,
+                                sz * (HALF_EXTENT - wallThickness * 2f)),
+                        new Vector3f(wallThickness * 3f, wallHeight / 2f, wallThickness * 3f));
+            }
+        }
     }
 
     protected float getRingStart() {
         return RING_START;
+    }
+
+    /**
+     * Radius of the open combat disc. A subclass culls scenery that would overhang it,
+     * so the arena never ends up visually buried under a canopy.
+     */
+    protected float getArenaRadius() {
+        return ARENA_RADIUS;
     }
 
     protected float getRingEnd() {
@@ -186,6 +226,44 @@ public abstract class BossStage implements Stage {
     }
 
     protected abstract void buildArenaDecor(AssetManager assetManager, BulletAppState bulletAppState);
+
+    /**
+     * Background scenery beyond the boundary walls. Placed with no collider at all:
+     * the player is stopped by the walls and cannot get out here, so a static body
+     * would only add broadphase work for scenery nobody can touch.
+     *
+     * <p>Seeded per call so a stage rebuilds identically. Uses the stage's own decor
+     * models, which is what keeps the outer landscape reading as the same biome as the
+     * arena.</p>
+     */
+    protected void scatterOuterScenery(AssetManager assetManager, String[] models, int count,
+                                       long seed, float minScale, float maxScale) {
+        if (models == null || models.length == 0) {
+            return;
+        }
+        Random rand = new Random(seed);
+        float margin = 4f;
+        float limit = FLOOR_HALF_EXTENT - 12f;
+        int target = Math.max(1, Math.round(count * OUTER_SCENERY_DENSITY));
+        int placed = 0;
+        int attempts = 0;
+        while (placed < target && attempts < target * 40) {
+            attempts++;
+            float x = (rand.nextFloat() * 2f - 1f) * limit;
+            float z = (rand.nextFloat() * 2f - 1f) * limit;
+            // The barrier is a square, not a circle, so this has to test the axes. A
+            // point at radius 70 still sits inside the walls if it is near a corner,
+            // which would drop scenery into the playable arena.
+            if (Math.abs(x) <= HALF_EXTENT + margin && Math.abs(z) <= HALF_EXTENT + margin) {
+                continue;
+            }
+            StageDecor.placeFlat(stageNode, assetManager, models[rand.nextInt(models.length)],
+                    x, z, minScale + rand.nextFloat() * (maxScale - minScale), rand);
+            placed++;
+        }
+        System.out.println("[OuterScenery] " + getName() + " placed " + placed + "/" + target
+                + " beyond the walls (no colliders)");
+    }
 
     protected float getBossScale() {
         return 1f;
@@ -216,6 +294,10 @@ public abstract class BossStage implements Stage {
         public float[] thresholds = {0.7f, 0.35f};
         /** each landed hit chills the player this many seconds (Frost Giant) */
         public float slowOnHit = 0f;
+        /** Multiplies the shared 900 boss HP. 1 = the default for every boss. */
+        public float healthMul = 1f;
+        /** Multiplies the shared 14 boss melee damage. 1 = the default for every boss. */
+        public float damageMul = 1f;
 
         public boolean smash = false;
         public float smashWindup = 0.8f;

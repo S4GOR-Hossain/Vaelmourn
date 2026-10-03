@@ -192,7 +192,7 @@ public class DarkwoodStage implements Stage {
     private List<EnemyController> spawnEncounters(AssetManager assetManager, Node parentNode,
                                                   BulletAppState bulletAppState, int loopCount) {
         List<EnemyController> enemies = new ArrayList<>();
-        int enemyCount = 10 + (loopCount / 4); // boot: 2 vale guards + 4 + 4 in two arenas
+        int enemyCount = Stage.loopedEnemyCount(10, loopCount); // boot: 2 vale guards + 4 + 4 in two arenas
         int tier = Math.min(3, 1 + (variant - 1) / 2);
         float scale = 1f + (variant - 1) * 0.35f;
         Random rand = new Random(7 + loopCount * 13);
@@ -441,9 +441,16 @@ public class DarkwoodStage implements Stage {
     /** Sampled so the exit portal rests on this stage's terrain rather than a
      *  fixed height, which left it buried in the higher profiles. */
     @Override
-    public Vector3f getExitPortalGround() {
-        return new Vector3f(0f, heightAt(0f, 25f), 25f);
-    }
+public Vector3f getExitPortalGround() {
+            return new Vector3f(0f, heightAt(0f, 25f), 25f);
+        }
+
+        /** Thrown bombs integrate their own gravity, so they need the same terrain
+         *  height the mesh was built from or they sink into the rolling ground. */
+        @Override
+        public float groundHeightAt(float x, float z) {
+            return heightAt(x, z);
+        }
 
     /** Dispatches to the authored elevation profile for any variant. Each
      *  profile composes broad rolling forms, planted summits, flat arenas and
@@ -736,10 +743,16 @@ public class DarkwoodStage implements Stage {
 
     private int plantCluster(AssetManager assetManager, BulletAppState bulletAppState,
                              Random rand, float[][] spots) {
-        for (float[] p : spots) {
-            plantTree(assetManager, bulletAppState, p[0], p[1], rand);
+        int planted = 0;
+        for (int i = 0; i < spots.length; i++) {
+            // Drop every 5th authored spot, so ~20% of the trees (and their trunk
+            // colliders) are never built. Deterministic on the spot index rather
+            // than a random draw, so the forest rebuilds identically every time.
+            if (i % 5 == 4) continue;
+            plantTree(assetManager, bulletAppState, spots[i][0], spots[i][1], rand);
+            planted++;
         }
-        return spots.length;
+        return planted;
     }
 
     private void plantBushes(AssetManager assetManager, Random rand, float[][] spots) {
@@ -1017,14 +1030,11 @@ public class DarkwoodStage implements Stage {
         placed.spatial.setLocalTranslation(x, placed.baseY + y, z);
         placed.spatial.updateModelBound();
 
-        float trunkRadius = 1.1f;
-        float collarHeight = 4f;
-        if (placed.spatial.getWorldBound() instanceof BoundingBox bbox) {
-            Vector3f extent = new Vector3f();
-            bbox.getExtent(extent);
-            trunkRadius = FastMath.clamp(Math.max(extent.x, extent.z) * 0.35f, 0.9f, 2f);
-            collarHeight = FastMath.clamp(extent.y, 3f, 9f);
-        }
+        // Trunk-only collider. Sizing this off the model's full bounds made every tree a
+        // 4x4 box up to 9u tall, so the invisible wall reached up through the canopy
+        // and snagged the player in clear space. The helpers keep it to the stem.
+        float trunkRadius = StageDecor.trunkHalfWidth(placed.spatial, 0.6f, 1.25f);
+        float collarHeight = StageDecor.trunkHeight(placed.spatial, 2.5f, 4f);
         addBlockerAt(bulletAppState, x, y, z, trunkRadius, collarHeight / 2f, trunkRadius);
     }
 

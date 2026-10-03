@@ -209,6 +209,12 @@ public class EnemyController {
         if (boss) {
             baseHealth = 900f;
             baseDamage = 14f;
+            // per-boss scaling lives on the spec so one biome can be rebalanced
+            // without every other boss' numbers moving
+            if (bossSpec != null) {
+                baseHealth *= bossSpec.healthMul;
+                baseDamage *= bossSpec.damageMul;
+            }
         } else {
             baseHealth = switch(tier) {
                 case 1 -> 55f;
@@ -230,7 +236,12 @@ public class EnemyController {
         baseHealth *= variantScale;
         baseDamage *= variantScale;
 
-        float loopScalar = (float) Math.pow(1.5, loopCount);
+        // Every completed cycle (the Fallen King falling and the run wrapping to a fresh
+        // Sanctuary) doubles the whole rotation again: cycle 1 is 2x the opening run,
+        // cycle 2 is 4x, and so on. Applied to normal enemies and to the boss alike -
+        // bossLoopScalar reuses this exact value for the boss kit's charge, smash and
+        // AOE damage, so no boss attack is left behind on the old 1.5x curve.
+        float loopScalar = (float) Math.pow(2.0, loopCount);
         this.maxHealth = baseHealth * loopScalar;
         this.health = maxHealth;
         this.damage = baseDamage * loopScalar;
@@ -362,6 +373,17 @@ public class EnemyController {
         float physRadius = boss ? 0.85f : 0.45f;
         float physHeight = Math.max(1.15f, Math.min(visualHeight, boss ? 4.5f : 2.2f));
         physics = new BetterCharacterControl(physRadius, physHeight, 0.8f);
+        // Minie overwrites a body's gravity with the PhysicsSpace's own (default
+        // -9.81) at the moment the body is added, unless the body protects it. Both
+        // branches below set gravity BEFORE the add on the next line, so without
+        // this protection both were silently discarded: every walker fell at -9.81
+        // instead of the intended -30 (a third of the rate, so they hung in the air
+        // after every hop), and the flying bosses got -9.81 instead of zero and
+        // steadily sank into the arena floor mid-fight - the exact opposite of what
+        // the comment below claims. Minie logged a warning per body for this.
+        if (physics.getRigidBody() != null) {
+            physics.getRigidBody().setProtectGravity(true);
+        }
         if (boss && bossSpec != null && bossSpec.hoverHeight > 0f) {
             // flying bosses ignore gravity: altitude is steered by the AI instead,
             // so they neither fall nor sink into the floor mid-fight

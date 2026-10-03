@@ -1,7 +1,6 @@
 package com.vaelmourn;
 
 import com.jme3.asset.AssetManager;
-import com.jme3.bounding.BoundingBox;
 import com.jme3.bullet.BulletAppState;
 import com.jme3.bullet.collision.shapes.CapsuleCollisionShape;
 import com.jme3.bullet.control.RigidBodyControl;
@@ -10,12 +9,11 @@ import com.jme3.math.ColorRGBA;
 import com.jme3.math.FastMath;
 import com.jme3.math.Vector3f;
 import com.jme3.scene.Geometry;
-import com.jme3.scene.Spatial;
 import com.jme3.scene.shape.Box;
 
 import java.util.Random;
 
-/** Frost Giant Boss Arena — a frozen caldera ringed by ice peaks; open disc at the centre. */
+/** Frost Giant Boss Arena â€” a frozen caldera ringed by ice peaks; open disc at the centre. */
 public class FrostGiantBossStage extends BossStage {
 
     private static final String CENJI =
@@ -70,16 +68,9 @@ public class FrostGiantBossStage extends BossStage {
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
 
-            Spatial rock = StageDecor.placeFlat(stageNode, assetManager,
+            StageDecor.placeSolid(stageNode, assetManager, bulletAppState, physicsObjects,
                     rocks[rand.nextInt(rocks.length)], x, z,
                     2.4f + rand.nextFloat() * 2f, rand);
-            rock.updateModelBound();
-            float half = 1.4f;
-            if (rock.getWorldBound() instanceof BoundingBox bbox) {
-                Vector3f ext = bbox.getExtent(new Vector3f());
-                half = FastMath.clamp(Math.max(ext.x, ext.z) * 0.5f, 1.2f, 3f);
-            }
-            StageDecor.addBlocker(bulletAppState, physicsObjects, x, z, half, half, half);
         }
 
         for (int i = 0; i < 10; i++) {
@@ -87,7 +78,8 @@ public class FrostGiantBossStage extends BossStage {
             float radius = getRingStart() + 2f + rand.nextFloat() * (getRingEnd() - getRingStart() - 2f);
             float x = FastMath.cos(angle) * radius;
             float z = FastMath.sin(angle) * radius;
-            StageDecor.placeFlat(stageNode, assetManager,
+            // crystal formations were purely decorative and walk-through
+            StageDecor.placeSolid(stageNode, assetManager, bulletAppState, physicsObjects,
                     formations[rand.nextInt(formations.length)], x, z,
                     2.6f + rand.nextFloat() * 1.8f, rand);
         }
@@ -106,6 +98,10 @@ public class FrostGiantBossStage extends BossStage {
             moundGeo.setLocalTranslation(x, 0.6f, z);
             stageNode.attachChild(moundGeo);
         }
+
+        // Glacial wastes continuing past the walls: unreachable, uncollided scenery.
+        scatterOuterScenery(assetManager, rocks, 60, 5501L, 4f, 8f);
+        scatterOuterScenery(assetManager, formations, 55, 5502L, 3f, 6f);
     }
 
     @Override
@@ -121,6 +117,11 @@ public class FrostGiantBossStage extends BossStage {
     @Override
     protected BossSpec getBossSpec() {
         BossSpec s = new BossSpec();
+        // Frost Giant rebalance: it read as far too weak for a loop-two boss.
+        // HP 900 x 2.5 = 2250, melee 14 x 1.5 = 21. Both multiply the shared boss
+        // base inside EnemyController, so variant and loop scalars still apply on top.
+        s.healthMul = 2.5f;
+        s.damageMul = 1.5f;
         s.moveSpeed = 2.1f;
         s.attackCooldown = 3.0f;
         s.meleeRange = 4.8f;
@@ -129,7 +130,8 @@ public class FrostGiantBossStage extends BossStage {
         s.smashWindup = 1.1f;
         s.smashCooldown = 7.5f;
         s.smashRadius = 10.5f;
-        s.smashDamage = 22f;
+        // scaled from its own previous smash value (22), not from the melee damage
+        s.smashDamage = 22f * 2.5f;
         s.smashRecovery = 1.1f;
         s.aoe = true;
         s.aoeWindup = 1.3f;

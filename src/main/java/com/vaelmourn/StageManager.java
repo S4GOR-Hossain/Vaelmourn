@@ -8,7 +8,9 @@ import com.jme3.math.ColorRGBA;
 import com.jme3.math.Vector3f;
 import com.jme3.scene.Geometry;
 import com.jme3.scene.Node;
+import com.jme3.scene.Spatial;
 import com.jme3.material.Material;
+import com.jme3.material.MatParam;
 import com.jme3.light.DirectionalLight;
 import com.jme3.light.AmbientLight;
 
@@ -35,6 +37,12 @@ public class StageManager {
     private Inventory inventory;
     /** Optional HUD/console line for gem feedback. */
     private java.util.function.Consumer<String> messageSink;
+    /** Remembered so stage transitions can move the player without every caller
+     *  having to hand the control back in again. */
+    private BetterCharacterControl playerControl;
+    /** Runs after every completed transition so the game layer can clear motion
+     *  state and snap the camera to the new player position. */
+    private Runnable postStageChange;
 
     private List<EnemyController> activeEnemies = new ArrayList<>();
     /** boss summons land here mid-update, flushed onto activeEnemies after the
@@ -64,13 +72,27 @@ public class StageManager {
     private static final int BOSS_REWARD_PER_LOOP = 75;
     private static final int ENEMY_REWARD_PER_LOOP = 3;
 
+    /**
+     * How far above the sampled ground a transition drops the player in.
+     *
+     * <p>Enough to clear the terrain plus the capsule's lower hemisphere, so the warp can
+     * never resolve with the body still intersecting the ground collider.</p>
+     */
+    private static final float SPAWN_CLEARANCE = 2.5f;
+
+    /**
+     * How far below the stage's ground function the player has to be before they are
+     * considered to have fallen out of the world and are put back on their feet.
+     */
+    private static final float FALL_RECOVERY_DEPTH = 12f;
+
     public StageManager(AssetManager assetManager, Node rootNode, BulletAppState bulletAppState,
                        SimpleApplication app) {
         this.assetManager = assetManager;
         this.rootNode = rootNode;
         this.bulletAppState = bulletAppState;
         this.app = app;
-        this.gems = new GemProgression(assetManager, rootNode);
+        this.gems = new GemProgression(assetManager, rootNode, bulletAppState);
     }
 
     /** The gem progression itself, so the game can reset it and show its messages. */
@@ -85,6 +107,60 @@ public class StageManager {
     public void setMessageSink(java.util.function.Consumer<String> sink) {
         this.messageSink = sink;
         gems.setMessageSink(sink);
+    }
+
+    /** Called once by the game layer so transitions can reset velocity/camera. */
+    public void setPostStageChange(Runnable hook) {
+        this.postStageChange = hook;
+    }
+
+    /**
+     * The single place a stage transition puts the player somewhere.
+     *
+     * Without this the player kept whatever position they died at in the previous
+     * arena, which in the boss rooms lands them inside the next stage's exit portal
+     * (default ground {@code (0,0,25)}, activation range 3.5) and chains straight
+     * into the stage after that.
+     */
+    private void warpToStageSpawn(String reason) {
+        if (playerControl == null) {
+            System.err.println("[StageManager] cannot warp for " + reason + ": no player control");
+            return;
+        }
+        Vector3f spawn = currentStage.getPlayerSpawnPoint();
+        if (spawn == null) {
+            System.err.println("[StageManager] cannot warp for " + reason
+                    + ": " + currentStage.getName() + " returned a null spawn point");
+            return;
+        }
+
+        // Never place the capsule at a fixed height. The stages that build their ground
+        // from a height field collider it with a MeshCollisionShape, and a triangle mesh
+        // has no interior: drop the capsule below the surface and there is nothing to
+        // push it back, so it falls through the world and lands on the safety floor
+        // far underneath. Sampling the stage's own ground function and standing the
+        // spawn above it makes this safe on every stage, and it is the same value the
+        // terrain was generated from, so visual and collision can never disagree.
+        float ground = currentStage.groundHeightAt(spawn.x, spawn.z);
+        if (spawn.y < ground + SPAWN_CLEARANCE) {
+            spawn = new Vector3f(spawn.x, ground + SPAWN_CLEARANCE, spawn.z);
+        }
+
+        playerControl.warp(spawn);
+        // drop any momentum carried out of the previous arena, otherwise a big fall
+        // or a dodge carries straight through the doorway
+        playerControl.setWalkDirection(Vector3f.ZERO);
+        if (playerControl.getRigidBody() != null) {
+            playerControl.getRigidBody().setLinearVelocity(Vector3f.ZERO);
+        }
+        System.out.println("[StageManager] " + reason + ": warped to "
+                + currentStage.getName() + " spawn " + spawn);
+    }
+
+    /** Load the stage, put the player at its spawn, then let the game layer settle. */
+    private void finishTransition(String reason) {
+        warpToStageSpawn(reason);
+        if (postStageChange != null) postStageChange.run();
     }
 
     private void reportGem(String message) {
@@ -102,6 +178,7 @@ public class StageManager {
             System.err.println("ERROR: No stages registered!");
             return;
         }
+        this.playerControl = playerControl;
 
         currentStageIndex = 0;
         // dev hook: boot straight into any stage with -Dvaelmourn.startStage=N
@@ -118,8 +195,7 @@ public class StageManager {
         gems.configure(stages);
         loadStage();
 
-        Vector3f spawnPoint = currentStage.getPlayerSpawnPoint();
-        playerControl.warp(spawnPoint);
+        finishTransition("initial load");
 
         System.out.println("Loaded initial stage: " + currentStage.getName());
     }
@@ -132,6 +208,7 @@ public class StageManager {
      * applies at boot.
      */
     public void resetToFirstStage(BetterCharacterControl playerControl) {
+        this.playerControl = playerControl;
         unloadCurrentStage();
 
         // fresh run: back to stage 0 at base difficulty
@@ -143,8 +220,7 @@ public class StageManager {
 
         loadStage();
 
-        Vector3f spawnPoint = currentStage.getPlayerSpawnPoint();
-        playerControl.warp(spawnPoint);
+        finishTransition("new run reset");
 
         System.out.println("Reset to fresh run at: " + currentStage.getName());
     }
@@ -187,6 +263,8 @@ public class StageManager {
 
         currentStageIndex = next;
         loadStage();
+
+        finishTransition(newLoop ? "new loop" : "portal transition");
 
         System.out.println("Transitioned to: " + currentStage.getName());
     }
@@ -232,6 +310,7 @@ public class StageManager {
         gems.onStageEntered(currentStageIndex);
 
         updateLighting();
+        repairMissingAmbient();
     }
 
     public void update(float tpf, Vector3f playerPos, BetterCharacterControl playerControl) {
@@ -353,19 +432,116 @@ public class StageManager {
         ColorRGBA skyColor = currentStage.getSkyColor();
         app.getViewPort().setBackgroundColor(skyColor);
 
+        Vector3f sunDir = currentStage.getSunDirection();
+
         DirectionalLight sun = new DirectionalLight();
-        sun.setDirection(currentStage.getSunDirection());
+        sun.setDirection(sunDir);
         sun.setColor(ColorRGBA.White.mult(1.0f));
         rootNode.addLight(sun);
 
+        // A fill light from the opposite side, pointing back toward the sun. Without
+        // it every surface turned away from the sun fell to pure ambient and the whole
+        // biome read as a single hard key light with black shadow sides.
+        DirectionalLight fill = new DirectionalLight();
+        fill.setDirection(new Vector3f(-sunDir.x, -sunDir.y, -sunDir.z));
+        fill.setColor(ColorRGBA.White.mult(0.45f));
+        rootNode.addLight(fill);
+
+        // Ambient floor. Several stages ship quite dark tints, and with no fill light
+        // those stages were near-unreadable; this lifts the darkest of them so nothing
+        // reads as black no matter how moody the stage wants to be.
+        ColorRGBA ambientColor = currentStage.getAmbientColor();
+        float luminance = ambientColor.r * 0.299f + ambientColor.g * 0.587f + ambientColor.b * 0.114f;
+        float floor = 0.34f;
+        if (luminance < floor) {
+            float scale = floor / Math.max(luminance, 0.001f);
+            ambientColor = new ColorRGBA(
+                    Math.min(ambientColor.r * scale, 1f),
+                    Math.min(ambientColor.g * scale, 1f),
+                    Math.min(ambientColor.b * scale, 1f),
+                    ambientColor.a);
+        }
         AmbientLight ambient = new AmbientLight();
-        ambient.setColor(currentStage.getAmbientColor());
+        ambient.setColor(ambientColor);
         rootNode.addLight(ambient);
     }
 
+    /**
+     * jME's lighting shader computes {@code AmbientSum = m_Ambient * g_AmbientLightColor},
+     * and "Ambient" has no default in Lighting.j3md, so any material that sets Diffuse but
+     * never Ambient leaves that uniform black and receives zero ambient light. The effect
+     * is a scene lit by the sun alone. Fill in whatever the materials left unset.
+     */
+    private void repairMissingAmbient() {
+        repairMissingAmbient(rootNode);
+    }
+
+    private void repairMissingAmbient(Spatial spatial) {
+        if (spatial instanceof Geometry geometry) {
+            Material material = geometry.getMaterial();
+            if (material != null && material.getMaterialDef().getMaterialParam("Ambient") != null) {
+                MatParam existing = material.getParam("Ambient");
+                if (existing == null || existing.getValue() == null) {
+                    // Mirror the Diffuse colour so the ambient term follows the material's
+                    // own hue instead of washing every surface toward flat grey.
+                    MatParam diffuse = material.getParam("Diffuse");
+                    Object fallback = (diffuse != null && diffuse.getValue() instanceof ColorRGBA c)
+                            ? c
+                            : ColorRGBA.White;
+                    material.setColor("Ambient", (ColorRGBA) fallback);
+                }
+            }
+        }
+        if (spatial instanceof Node node) {
+            for (Spatial child : node.getChildren()) {
+                repairMissingAmbient(child);
+            }
+        }
+    }
+
+    /**
+     * Puts the player back on their feet if they ever end up underneath the stage.
+     *
+     * <p>The height-field stages back their terrain with a {@code MeshCollisionShape} and
+     * drop a failsafe floor far below the basin, so a capsule that clips through the
+     * surface does not keep falling forever — it lands on that floor and is stranded
+     * under the map with no way back. This watches for a body sitting well below the
+     * stage's own ground function and warps it to the stage spawn.</p>
+     *
+     * <p>Cheap enough to call every frame: two field reads and a comparison.</p>
+     */
+    public void recoverPlayerIfFallen(BetterCharacterControl control) {
+        if (control == null || currentStage == null) return;
+        Vector3f pos = control.getRigidBody() == null
+                ? null
+                : control.getRigidBody().getPhysicsLocation();
+        if (pos == null) return;
+        float ground = currentStage.groundHeightAt(pos.x, pos.z);
+        if (pos.y >= ground - FALL_RECOVERY_DEPTH) return;
+
+        Vector3f spawn = currentStage.getPlayerSpawnPoint();
+        if (spawn == null) return;
+        Vector3f safe = new Vector3f(spawn.x,
+                Math.max(spawn.y, currentStage.groundHeightAt(spawn.x, spawn.z) + SPAWN_CLEARANCE),
+                spawn.z);
+
+        System.out.println("[StageManager] recovered player from below the world in "
+                + currentStage.getName() + " (y=" + pos.y + ", ground=" + ground + ")");
+        control.warp(safe);
+        control.setWalkDirection(Vector3f.ZERO);
+        if (control.getRigidBody() != null) {
+            control.getRigidBody().setLinearVelocity(Vector3f.ZERO);
+        }
+    }
+
     private void updateDifficultyScalar() {
-        // base 1.0x, +0.2x per loop, hard-capped at 3.0x
-        difficultyScalar = Math.min(3.0f, 1.0f + loopCount * 0.2f);
+        // One completed cycle doubles everything. The run does NOT end at the Fallen
+        // King: advanceStage() wraps back to a fresh Sanctuary, keeps the inventory,
+        // upgrades and gems earned so far, and starts the rotation again at 2x. Each
+        // further Fallen King doubles it again, so the scalar reads 1, 2, 4, 8, ...
+        // EnemyController derives the same 2^loopCount factor for HP, damage and the
+        // boss kit, and Stage.loopedEnemyCount applies it to every stage roster.
+        difficultyScalar = (float) Math.pow(2.0, loopCount);
     }
 
     /** Let a boss arena feed fight-summoned enemies onto the live roster. */
@@ -488,5 +664,9 @@ public class StageManager {
     private PlayerStats playerStats;
     public void setPlayerStats(PlayerStats stats) {
         this.playerStats = stats;
+    }
+
+    public GemProgression getGemProgression() {
+        return gems;
     }
 }
